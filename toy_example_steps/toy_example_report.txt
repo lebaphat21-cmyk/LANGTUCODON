@@ -1,0 +1,44 @@
+=== CHI TIẾT BÀI TOÁN TÍNH TAY TỪNG BƯỚC (TOY EXAMPLE) ===
+Tập dữ liệu 6 điểm 2D:
+  - P1(1,2)
+  - P2(2,3)
+  - P3(2,1)
+  - P4(8,7)
+  - P5(9,8)
+  - P6(8,9)
+Tham số: Số điểm đại diện c = 2, Hệ số co cụm alpha = 0.5, Số cụm đích k = 2
+
+--- BƯỚC 1: Sáp nhập P1 và P2 thành cụm C{1,2} ---
+Khoảng cách nhỏ nhất ban đầu: d(P1, P2) = sqrt((2-1)^2 + (3-2)^2) = sqrt(2) ≈ 1.414
+Trọng tâm cụm mới: mean = ((1+2)/2, (2+3)/2) = (1.5, 2.5)
+Vì cụm có 2 điểm (<= c=2), chọn cả 2 điểm làm điểm đại diện thô.
+Áp dụng công thức co cụm với alpha = 0.5: p' = p + alpha * (mean - p)
+  + p1' = (1, 2) + 0.5 * ((1.5, 2.5) - (1, 2)) = (1.25, 2.25)
+  + p2' = (2, 3) + 0.5 * ((1.5, 2.5) - (2, 3)) = (1.75, 2.75)
+
+--- BƯỚC 2: Sáp nhập P4 và P5 thành cụm C{4,5} ---
+Khoảng cách nhỏ nhất tiếp theo: d(P4, P5) = sqrt((9-8)^2 + (8-7)^2) = sqrt(2) ≈ 1.414
+Trọng tâm cụm mới: mean = (8.5, 7.5)
+Hai điểm đại diện sau khi co alpha = 0.5: (8.25, 7.25) và (8.75, 7.75)
+
+--- BƯỚC 3: Sáp nhập cụm C{1,2} và điểm P3 thành cụm C{1,2,3} ---
+Tính khoảng cách từ P3(2, 1) tới các rep của C(1, 2):
+  + d(P3, p1') = sqrt((2-1.25)^2 + (1-2.25)^2) = sqrt(2.125) ≈ 1.458
+  + d(P3, p2') = sqrt((2-1.75)^2 + (1-2.75)^2) = sqrt(3.125) ≈ 1.768
+  => dist(C(1, 2), P3) = min(1.458, 1.768) = 1.458 (nhỏ nhất hiện tại)
+Trọng tâm cụm mới C(1, 2, 3): mean = (1.667, 2.000)
+Vì cụm có 3 điểm > c=2, thuật toán chọn 2 điểm phân tán tốt nhất:
+  + Điểm 1 (xa mean nhất): [2. 3.]
+  + Điểm 2 (xa điểm 1 nhất): [2. 1.]
+Co 2 điểm này về mean với alpha = 0.5: (1.833, 2.500) và (1.833, 1.500)
+
+--- BƯỚC 4: Sáp nhập cụm C{4,5} và điểm P6 thành cụm C{4,5,6} ---
+Khoảng cách dist(C(4, 5), P6) = 1.458 -> Sáp nhập thành C(4, 5, 6).
+Trọng tâm cụm mới: mean = (8.333, 8.000)
+Điểm đại diện sau co cụm alpha = 0.5: (8.167, 7.500) và (8.167, 8.500)
+
+=== KẾT THÚC: SỐ CỤM CÒN LẠI LÀ 2 (ĐẠT K_TARGET = 2) ===
+Kết quả phân cụm:
+  - Cụm 1: {P1, P2, P3} (Cụm bên trái)
+  - Cụm 2: {P4, P5, P6} (Cụm bên phải)
+Khoảng cách giữa 2 cụm cuối cùng rất lớn (dist ≈ 6.5 > 1.458) -> Thuật toán dừng lại chuẩn xác!

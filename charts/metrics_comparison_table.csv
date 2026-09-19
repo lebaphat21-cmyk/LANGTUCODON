@@ -1,0 +1,21 @@
+﻿Tập dữ liệu,Thuật toán,Số cụm tìm được,Silhouette Score,Davies-Bouldin,Calinski-Harabasz,Thời gian (giây)
+1. Two Moons (Trăng khuyết),CURE,2,0.4237,0.7023,267.7,0.6913
+1. Two Moons (Trăng khuyết),K-Means,2,0.4863,0.7801,440.2,1.7621
+1. Two Moons (Trăng khuyết),K-Medoids,2,0.4736,0.7754,409.2,0.0034
+1. Two Moons (Trăng khuyết),DBSCAN,2,0.3298,1.1514,198.3,0.0069
+1. Two Moons (Trăng khuyết),Hierarchical (Single),2,0.3298,1.1514,198.3,0.1983
+2. Concentric Circles (Vòng tròn đồng tâm),CURE,2,0.2643,1.2895,97.3,0.6793
+2. Concentric Circles (Vòng tròn đồng tâm),K-Means,2,0.3489,1.1908,170.5,0.0016
+2. Concentric Circles (Vòng tròn đồng tâm),K-Medoids,2,0.346,1.1951,169.1,0.0013
+2. Concentric Circles (Vòng tròn đồng tâm),DBSCAN,2,0.1098,163.9274,0.0,0.0022
+2. Concentric Circles (Vòng tròn đồng tâm),Hierarchical (Single),2,0.1098,163.9274,0.0,0.0014
+3. Anisotropic (Cụm kéo dài),CURE,3,0.7023,0.4559,3325.9,0.8629
+3. Anisotropic (Cụm kéo dài),K-Means,3,0.7023,0.4559,3325.9,0.0024
+3. Anisotropic (Cụm kéo dài),K-Medoids,3,0.7023,0.4559,3325.9,0.0021
+3. Anisotropic (Cụm kéo dài),DBSCAN,4,0.6921,0.3765,3090.9,0.0072
+3. Anisotropic (Cụm kéo dài),Hierarchical (Single),3,0.7023,0.4559,3325.9,0.0024
+4. Blobs with Outliers (Cụm có ngoại lai),CURE,2,0.7451,0.3629,1008.0,0.896
+4. Blobs with Outliers (Cụm có ngoại lai),K-Means,2,0.7459,0.3636,1014.6,0.0013
+4. Blobs with Outliers (Cụm có ngoại lai),K-Medoids,2,0.7454,0.3643,1010.7,0.0015
+4. Blobs with Outliers (Cụm có ngoại lai),DBSCAN,10,0.3934,0.7023,3581.3,0.0022
+4. Blobs with Outliers (Cụm có ngoại lai),Hierarchical (Single),2,-0.1661,4.311,0.1,0.0013
