@@ -125,8 +125,8 @@ class CURE:
         
         # 1. Lấy mẫu ngẫu nhiên nếu kích thước dữ liệu lớn
         if self.sample_size is not None and self.sample_size < n_samples:
-            np.random.seed(self.random_state)
-            sample_indices = np.random.choice(n_samples, size=self.sample_size, replace=False)
+            rng = np.random.RandomState(self.random_state)  # Dùng instance, tránh side effect global seed
+            sample_indices = rng.choice(n_samples, size=self.sample_size, replace=False)
             X_sample = X[sample_indices]
         else:
             X_sample = X
@@ -223,3 +223,154 @@ class CURE:
     def get_cluster_means(self):
         """Danh sách trọng tâm các cụm"""
         return np.array([c.mean for c in self.clusters_])
+
+
+class DIANA:
+    """
+    DIANA (DIvisive ANAlysis) — Phân cụm phân cấp hướng từ trên xuống (Top-down Divisive).
+
+    Nguyên lý hoạt động (ngược với AGNES/CURE):
+      1. Bắt đầu với 1 cụm lớn duy nhất chứa tất cả N điểm.
+      2. Chọn cụm có ĐƯỜNG KÍNH (max pairwise distance) lớn nhất để tách.
+      3. Trong cụm đó, tìm điểm có avg-dissimilarity cao nhất tới các điểm còn lại
+         → đó là "hạt nhân" (splinter) của cụm con mới.
+      4. Lần lượt chuyển các điểm gần splinter hơn main-cluster sang cụm con.
+      5. Lặp lại bước 2–4 đến khi đạt đúng k cụm mục tiêu.
+
+    Tham số:
+      - n_clusters (k): Số cụm mục tiêu (mặc định 2).
+      - max_points_full: Ngưỡng kích thước cụm để tính diameter đầy đủ (default 200).
+        Nếu cụm lớn hơn, dùng xấp xỉ (random sampling) để tránh quá chậm.
+    """
+
+    def __init__(self, n_clusters=2, max_points_full=200):
+        self.n_clusters = n_clusters
+        self.max_points_full = max_points_full
+        self.labels_ = None
+        self.clusters_ = None
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+    def _diameter(self, X, indices):
+        """Đường kính cụm = max khoảng cách giữa 2 điểm bất kỳ trong cụm."""
+        pts = X[indices]
+        if len(pts) <= 1:
+            return 0.0
+        # Nếu cụm nhỏ đủ: tính chính xác
+        if len(pts) <= self.max_points_full:
+            return float(np.max(pdist(pts)))
+        # Cụm lớn: xấp xỉ bằng max khoảng cách tới trọng tâm * 2
+        mean_pt = pts.mean(axis=0)
+        return float(np.max(np.linalg.norm(pts - mean_pt, axis=1))) * 2.0
+
+    def _split_cluster(self, X, indices):
+        """
+        Tách 1 cụm thành 2 theo cơ chế DIANA:
+          a. Tìm điểm có avg dissimilarity cao nhất → "splinter" (hạt nhân cụm con).
+          b. Di chuyển các điểm từ main → split nếu gần split hơn main.
+          c. Lặp đến khi không còn điểm nào di chuyển.
+
+        Trả về: (indices_main, indices_split)
+        """
+        pts = X[indices]
+        n = len(pts)
+
+        if n <= 1:
+            return list(indices), []
+
+        # a. Tính avg distance mỗi điểm đến các điểm khác trong cụm
+        dist_mat = squareform(pdist(pts))  # n×n, đường chéo = 0
+        # avg dissimilarity (bỏ qua chính nó)
+        np.fill_diagonal(dist_mat, 0.0)
+        avg_diss = dist_mat.sum(axis=1) / max(n - 1, 1)
+
+        splinter_local = int(np.argmax(avg_diss))
+
+        # Khởi tạo: main = tất cả trừ splinter, split = {splinter}
+        main_set  = set(range(n)) - {splinter_local}
+        split_set = {splinter_local}
+
+        # b. Lặp di chuyển
+        changed = True
+        while changed:
+            changed = False
+            to_move = []
+            for i in list(main_set):
+                # avg dist đến main (trừ chính i)
+                main_others = list(main_set - {i})
+                if main_others:
+                    d_main = dist_mat[i, main_others].mean()
+                else:
+                    d_main = np.inf  # main chỉ còn mình i → nên chuyển
+
+                # avg dist đến split
+                d_split = dist_mat[i, list(split_set)].mean()
+
+                if d_split < d_main:
+                    to_move.append(i)
+
+            if to_move:
+                for i in to_move:
+                    main_set.discard(i)
+                    split_set.add(i)
+                changed = True
+
+        indices_main  = [indices[i] for i in sorted(main_set)]
+        indices_split = [indices[i] for i in sorted(split_set)]
+        return indices_main, indices_split
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+    def fit(self, X):
+        """Chạy DIANA trên tập dữ liệu X (ndarray shape N×D)."""
+        X = np.asarray(X, dtype=float)
+        n = len(X)
+
+        # Bắt đầu: 1 cụm chứa tất cả
+        clusters = [list(range(n))]
+
+        while len(clusters) < self.n_clusters:
+            # Chọn cụm có đường kính lớn nhất để tách
+            diameters = [self._diameter(X, c) for c in clusters]
+            split_idx = int(np.argmax(diameters))
+
+            target = clusters[split_idx]
+            if len(target) <= 1:
+                # Không thể tách thêm → dừng
+                break
+
+            main_part, split_part = self._split_cluster(X, target)
+
+            if not main_part or not split_part:
+                # Tránh tách rỗng
+                break
+
+            clusters.pop(split_idx)
+            clusters.append(main_part)
+            clusters.append(split_part)
+
+        # Gán nhãn
+        self.labels_ = np.zeros(n, dtype=int)
+        for label, cluster in enumerate(clusters):
+            for idx in cluster:
+                self.labels_[idx] = label
+
+        self.clusters_ = clusters
+        return self
+
+    def fit_predict(self, X):
+        """Fit và trả về nhãn phân cụm."""
+        return self.fit(X).labels_
+
+    def get_cluster_means(self):
+        """Trọng tâm (mean) của từng cụm."""
+        X = None  # Cần X để tính — không lưu X trong class để tiết kiệm RAM
+        return None  # Xem get_cluster_means_from_X
+
+    def get_cluster_means_from_X(self, X):
+        """Trả về array (k, D) chứa trọng tâm từng cụm."""
+        X = np.asarray(X, dtype=float)
+        return np.array([X[c].mean(axis=0) for c in self.clusters_])
+
