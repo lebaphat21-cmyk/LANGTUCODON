@@ -2,6 +2,7 @@
 Thực nghiệm So sánh và Đánh giá thuật toán CURE với K-Means, K-Medoids, DBSCAN, Hierarchical
 Môn: Khai phá dữ liệu - ĐH Công Thương TP.HCM (HUIT)
 """
+# %% Cell 01 - Thư viện và cấu hình
 import os
 import sys
 import time
@@ -26,6 +27,7 @@ plt.rcParams['font.sans-serif'] = 'DejaVu Sans'
 plt.rcParams['axes.edgecolor'] = '#CCCCCC'
 plt.rcParams['axes.linewidth'] = 0.8
 
+# %% Cell 02 - Tạo dữ liệu kiểm thử
 def generate_datasets(n_samples=300, random_state=42):
     moons, _ = datasets.make_moons(n_samples=n_samples, noise=0.06, random_state=random_state)
     circles, _ = datasets.make_circles(n_samples=n_samples, factor=0.5, noise=0.05, random_state=random_state)
@@ -44,6 +46,7 @@ def generate_datasets(n_samples=300, random_state=42):
         ('4. Blobs with Outliers (Cụm có ngoại lai)', outliers_data, 2)
     ]
 
+# %% Cell 03 - Tính các chỉ số đánh giá
 def evaluate_clustering(X, labels):
     unique_labels = set(labels)
     valid_mask = labels != -1
@@ -60,6 +63,7 @@ def evaluate_clustering(X, labels):
     ch = calinski_harabasz_score(X_valid, labels_valid)
     return {'silhouette': sil, 'davies_bouldin': db, 'calinski': ch, 'n_clusters': n_clusters}
 
+# %% Cell 04 - Chạy thuật toán → đo chỉ số → xuất biểu đồ
 def run_benchmark():
     print("=== BẮT ĐẦU THỰC NGHIỆM ĐỐI SÁNH: CURE VS K-MEANS VS K-MEDOIDS VS DBSCAN VS HIERARCHICAL ===")
     dataset_list = generate_datasets()
@@ -171,6 +175,7 @@ def run_benchmark():
     
     return df_results
 
+# %% Cell 05 - Điểm vào khi chạy script
 if __name__ == '__main__':
     df = run_benchmark()
     print("\n=== KẾT QUẢ ĐỐI SÁNH TỔNG HỢP ===")

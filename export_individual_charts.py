@@ -1,6 +1,7 @@
 """
 Xuất các đồ thị đối sánh chi tiết từng tập dữ liệu bao gồm K-Means và K-Medoids
 """
+# %% Cell 01 - Thư viện và cấu hình
 import os
 import sys
 import numpy as np
@@ -18,6 +19,7 @@ if sys.platform == 'win32':
 os.makedirs('charts', exist_ok=True)
 colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
 
+# %% Cell 02 - Hàm dùng chung để chạy và vẽ năm thuật toán
 def plot_single_comparison(d_name, X, k, filename, eps=0.25):
     fig, axes = plt.subplots(1, 5, figsize=(22, 4.5))
     fig.suptitle(f'SO SÁNH PHÂN CỤM TRÊN TẬP DỮ LIỆU: {d_name.upper()}', fontsize=14, fontweight='bold', color='#103673', y=1.02)
@@ -71,20 +73,24 @@ def plot_single_comparison(d_name, X, k, filename, eps=0.25):
     plt.close()
     print(f"Saved: {out_path}")
 
+# %% Cell 03 - Tạo và xuất dữ liệu Moons
 # 1. Moons
 X_moons, _ = datasets.make_moons(n_samples=300, noise=0.06, random_state=42)
 plot_single_comparison('Two Moons (Trăng khuyết)', X_moons, 2, 'moons_comparison.png', eps=0.25)
 
+# %% Cell 04 - Tạo và xuất dữ liệu Circles
 # 2. Circles
 X_circles, _ = datasets.make_circles(n_samples=300, factor=0.5, noise=0.05, random_state=42)
 plot_single_comparison('Concentric Circles (Vòng tròn đồng tâm)', X_circles, 2, 'circles_comparison.png', eps=0.2)
 
+# %% Cell 05 - Tạo và xuất dữ liệu Anisotropic
 # 3. Anisotropic
 X_blobs, _ = datasets.make_blobs(n_samples=300, cluster_std=[1.0, 1.0, 1.0], random_state=42)
 transformation = [[0.6, -0.6], [-0.4, 0.8]]
 X_aniso = np.dot(X_blobs, transformation)
 plot_single_comparison('Anisotropic (Cụm kéo dài)', X_aniso, 3, 'aniso_comparison.png', eps=0.4)
 
+# %% Cell 06 - Tạo và xuất dữ liệu có nhiễu
 # 4. Outliers
 blobs, _ = datasets.make_blobs(n_samples=260, centers=2, cluster_std=0.8, random_state=42)
 rng = np.random.RandomState(42)

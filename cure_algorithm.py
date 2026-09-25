@@ -3,9 +3,11 @@ Thuật toán phân cụm CURE (Clustering Using REpresentatives)
 Cài đặt tối ưu hóa cho môn Khai phá dữ liệu - ĐH Công Thương TP.HCM (HUIT)
 """
 
+# %% Cell 01 - Thư viện tính toán
 import numpy as np
 from scipy.spatial.distance import cdist, pdist, squareform
 
+# %% Cell 02 - K-Medoids: khởi tạo → gán cụm → cập nhật medoid
 class KMedoids:
     """
     Thuật toán K-Medoids (PAM - Partitioning Around Medoids) chuẩn môn Khai phá dữ liệu.
@@ -51,6 +53,7 @@ class KMedoids:
         return self.fit(X).labels_
 
 
+# %% Cell 03 - Cấu trúc cụm và chọn điểm đại diện
 class CURECluster:
     """Đại diện cho một cụm trong thuật toán CURE"""
     def __init__(self, points, cluster_id):
@@ -93,6 +96,7 @@ class CURECluster:
         self.rep_points = selected_rep + alpha * (self.mean - selected_rep)
 
 
+# %% Cell 04 - CURE: lấy mẫu → gom cụm → gán nhãn
 class CURE:
     """
     Lớp triển khai thuật toán CURE tối ưu tốc độ với ma trận khoảng cách động.
@@ -120,6 +124,8 @@ class CURE:
 
     def fit(self, X):
         """Thực thi thuật toán CURE trên tập dữ liệu X"""
+        # Bản demo dùng ma trận khoảng cách O(s²), chưa cài phân hoạch
+        # hay hai pha loại ngoại lai trong quy trình CURE mở rộng.
         X = np.asarray(X, dtype=float)
         n_samples = len(X)
         
@@ -142,7 +148,6 @@ class CURE:
             
         # Ma trận khoảng cách ban đầu giữa các điểm N x N
         # Vì ban đầu mỗi cụm là 1 điểm, dist_matrix là khoảng cách euclidean giữa các điểm
-        from scipy.spatial.distance import pdist, squareform
         d_condensed = pdist(X_sample)
         dist_matrix = squareform(d_condensed)
         np.fill_diagonal(dist_matrix, np.inf)
@@ -153,7 +158,6 @@ class CURE:
         while len(active_ids) > self.n_clusters:
             # Tìm cặp cụm (u, v) có khoảng cách nhỏ nhất trong active_ids
             # Sub-matrix của active_ids
-            idx_map = {idx: i for i, idx in enumerate(active_ids)}
             sub_dist = dist_matrix[np.ix_(active_ids, active_ids)]
             
             # Tọa độ min trong sub_dist
@@ -225,6 +229,7 @@ class CURE:
         return np.array([c.mean for c in self.clusters_])
 
 
+# %% Cell 05 - DIANA: chọn cụm → tách cụm → gán nhãn
 class DIANA:
     """
     DIANA (DIvisive ANAlysis) — Phân cụm phân cấp hướng từ trên xuống (Top-down Divisive).

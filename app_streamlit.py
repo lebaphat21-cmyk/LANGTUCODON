@@ -2,8 +2,14 @@
 Hệ thống Web Demo Mô phỏng & Đối sánh Thuật toán Phân cụm CURE (Clustering Using REpresentatives)
 Môn học: Khai thác dữ liệu / Khai phá dữ liệu - Trường Đại học Công Thương TP. Hồ Chí Minh (HUIT)
 Khởi chạy: python -m streamlit run app_streamlit.py
+
+Đọc hoặc chạy các cell # %% từ trên xuống. Các cell khai báo hàm không
+phân cụm ngay; dữ liệu và kết quả được tạo trước khi dựng các tab.
+Streamlit chạy lại toàn bộ file khi đổi điều khiển; cache tái sử dụng
+kết quả khi đầu vào không đổi. Mỗi tab chỉ đọc kết quả dùng chung.
 """
 
+# %% Cell 01 - Thư viện
 import os
 import sys
 import time
@@ -21,139 +27,14 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 
 from cure_algorithm import CURE, KMedoids, DIANA
-
-# ==========================================
-# CẤU HÌNH TRANG STREAMLIT
-# ==========================================
-st.set_page_config(
-    page_title="CURE Clustering Visualizer - HUIT",
-    page_icon="🔬",
-    layout="wide",
-    initial_sidebar_state="expanded"
+from ui_components import (
+    CLUSTER_COLORS, apply_theme, render_tab_header, render_metrics,
+    render_chart, render_table,
 )
 
-# Custom CSS giao diện chuẩn HUIT
-st.markdown("""
-<style>
-    .main-header {
-        background: linear-gradient(135deg, #103673 0%, #1f4e79 100%);
-        padding: 22px;
-        border-radius: 12px;
-        color: white;
-        margin-bottom: 25px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-    }
-    .huit-title {
-        color: #F2A900 !important;
-        font-weight: 800;
-        letter-spacing: 0.5px;
-        margin: 0;
-        font-size: 22px;
-    }
-    .sub-title {
-        color: #FFFFFF;
-        font-weight: 600;
-        margin: 6px 0 0 0;
-        font-size: 17px;
-    }
-    .metric-card {
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 8px;
-        padding: 12px;
-        margin-bottom: 10px;
-    }
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        height: 48px;
-        white-space: pre-wrap;
-        background-color: #f1f5f9;
-        border-radius: 8px 8px 0 0;
-        padding: 8px 16px;
-        font-weight: 600;
-        color: #1e293b;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #103673 !important;
-        color: #ffffff !important;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# Banner Header
-st.markdown("""
-<div class="main-header">
-    <div class="huit-title">TRƯỜNG ĐẠI HỌC CÔNG THƯƠNG TP. HỒ CHÍ MINH (HUIT)</div>
-    <div class="sub-title">HỆ THỐNG MÔ PHỎNG & ĐỐI SÁNH THUẬT TOÁN PHÂN CỤM CURE</div>
-    <p style="margin: 6px 0 0 0; font-size: 13.5px; opacity: 0.92;">
-        Môn học: Khai thác dữ liệu | Đề tài: <b>Phân cụm dữ liệu dựa trên thuật toán CURE (Clustering Using REpresentatives)</b> &bull; Hỗ trợ Dữ liệu thực tế từ folder <code>Data/</code>
-    </p>
-</div>
-""", unsafe_allow_html=True)
-
-# ==========================================
-# SIDEBAR: CẤU HÌNH THAM SỐ
-# ==========================================
-st.sidebar.markdown("### ⚙️ CẤU HÌNH THỰC NGHIỆM")
-
-DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data")
-csv_files = []
-if os.path.exists(DATA_DIR):
-    csv_files = [f for f in os.listdir(DATA_DIR) if f.endswith('.csv')]
-
-dataset_options = [
-    "📁 Dữ liệu từ folder Data (Test.csv - Khách hàng)",
-    "Two Moons (2 Vầng trăng khuyết - Phi cầu)",
-    "Concentric Circles (2 Vòng tròn đồng tâm - Phi cầu)",
-    "Anisotropic Blobs (Cụm kéo dài hình elip)",
-    "Blobs with Outliers (Cụm có điểm ngoại lai/nhiễu)"
-]
-
-dataset_type = st.sidebar.selectbox("1. Chọn tập dữ liệu kiểm thử:", dataset_options, index=0)
-
-selected_feature_pair = "Tuổi (Age) vs Điểm chi tiêu (Spending Score)"
-axis_x_name = "X"
-axis_y_name = "Y"
-df_customer_raw = None
-
-if "Data" in dataset_type:
-    st.sidebar.markdown("#### 📂 Thuộc tính dữ liệu Khách hàng:")
-    feature_pairs = [
-        "Tuổi (Age) vs Điểm chi tiêu (Spending Score)",
-        "Tuổi (Age) vs Kinh nghiệm làm việc (Work Experience)",
-        "Tuổi (Age) vs Quy mô gia đình (Family Size)",
-        "Kinh nghiệm làm việc vs Quy mô gia đình",
-        "Không gian PCA 2D (Tổng hợp các thuộc tính số)"
-    ]
-    selected_feature_pair = st.sidebar.selectbox("Chọn 2 thuộc tính phân cụm:", feature_pairs, index=0)
-    
-    n_samples = st.sidebar.slider(
-        "Kích thước mẫu lấy ngẫu nhiên (s):", 
-        min_value=60, max_value=400, value=140, step=20,
-        help="Pha 1 của thuật toán CURE: Rút trích mẫu ngẫu nhiên s điểm từ cơ sở dữ liệu lớn để giảm chi phí tính toán."
-    )
-else:
-    n_samples = st.sidebar.slider("Số lượng điểm dữ liệu (N):", min_value=120, max_value=600, value=300, step=30)
-
-noise_seed = st.sidebar.number_input("Random Seed:", min_value=1, max_value=999, value=42, step=1)
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 🎛️ THAM SỐ THUẬT TOÁN CURE")
-default_k = 3 if "Data" in dataset_type else 2
-k_clusters = st.sidebar.slider("Số cụm mục tiêu (k):", min_value=2, max_value=6, value=default_k, step=1)
-c_reps = st.sidebar.slider("Số điểm đại diện mỗi cụm (c):", min_value=1, max_value=8, value=4, step=1,
-                          help="Càng nhiều điểm đại diện càng nắm bắt được các khúc uốn lượn và phân bố phức tạp của cụm.")
-alpha_shrink = st.sidebar.slider("Hệ số co cụm (alpha):", min_value=0.0, max_value=1.0, value=0.4, step=0.05,
-                                help="0.0: Điểm đại diện giữ nguyên ở biên ngoài | 1.0: Điểm đại diện co hoàn toàn về trọng tâm mean | 0.3-0.5: Tối ưu chống nhiễu.")
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 📈 GỢI Ý SỐ CỤM TỐI ƯU")
-
-
-# ==========================================
+# %% Cell 02 - Hàm get_test_csv_path
 def get_test_csv_path():
+    """Tìm CSV theo vị trí file app trước, sau đó mới thử thư mục chạy."""
     base_dir = os.path.dirname(os.path.abspath(__file__))
     candidates = [
         os.path.join(base_dir, "Data", "Test.csv"),
@@ -171,8 +52,14 @@ def get_test_csv_path():
             return c
     return None
 
+# %% Cell 03 - Hàm load_and_preprocess_customer_data
 @st.cache_data
 def load_and_preprocess_customer_data(pair_name, n_pts, seed, uploaded_bytes=None):
+    """Đọc CSV → điền giá trị thiếu → lấy mẫu → chọn hai đặc trưng/PCA.
+
+    Trả về X, tên hai trục và đúng các dòng dữ liệu đã lấy mẫu.
+    Các tab phân tích phải dùng cùng mẫu này để thống kê khớp biểu đồ.
+    """
     df = None
     if uploaded_bytes is not None:
         import io
@@ -181,7 +68,7 @@ def load_and_preprocess_customer_data(pair_name, n_pts, seed, uploaded_bytes=Non
         csv_path = get_test_csv_path()
         if csv_path is not None:
             df = pd.read_csv(csv_path)
-            
+
     if df is None:
         return None, "X", "Y", None
     # Tiền xử lý
@@ -194,7 +81,7 @@ def load_and_preprocess_customer_data(pair_name, n_pts, seed, uploaded_bytes=Non
     # Lấy mẫu ngẫu nhiên (Pha 1 của CURE)
     sample_df = df.sample(n=min(n_pts, len(df)), random_state=seed).copy()
 
-    if "Chi tiêu" in pair_name:
+    if "chi tiêu" in pair_name.lower():
         # Thêm một chút jitter nhỏ để các điểm rời rạc (1, 2, 3) không đè khít lên nhau
         rng = np.random.RandomState(seed)
         jitter = rng.uniform(-0.12, 0.12, size=len(sample_df))
@@ -232,8 +119,10 @@ def load_and_preprocess_customer_data(pair_name, n_pts, seed, uploaded_bytes=Non
 
     return X, x_name, y_name, sample_df
 
+# %% Cell 04 - Hàm generate_synthetic_dataset
 @st.cache_data
 def generate_synthetic_dataset(d_type, n_pts, seed):
+    """Sinh dữ liệu có thể tái lập bằng seed, cùng định dạng với bộ nạp CSV."""
     rng = np.random.RandomState(seed)
     if "Moons" in d_type:
         X, _ = datasets.make_moons(n_samples=n_pts, noise=0.06, random_state=seed)
@@ -251,29 +140,7 @@ def generate_synthetic_dataset(d_type, n_pts, seed):
         X = np.vstack([blobs, outliers])
     return X, "Tọa độ X", "Tọa độ Y", None
 
-uploaded_file_bytes = None
-if "Data" in dataset_type:
-    # Kiểm tra xem file có trên máy / server không
-    found_path = get_test_csv_path()
-    if found_path is None:
-        st.sidebar.warning("⚠️ Không tìm thấy folder Data/Test.csv trên server!")
-        uploaded_csv = st.sidebar.file_uploader("Tải lên file Test.csv trực tiếp:", type=["csv"])
-        if uploaded_csv is not None:
-            uploaded_file_bytes = uploaded_csv.getvalue()
-            
-    X_data, axis_x_name, axis_y_name, df_customer_raw = load_and_preprocess_customer_data(
-        selected_feature_pair, n_samples, noise_seed, uploaded_file_bytes
-    )
-    if X_data is None:
-        st.error("❌ **Chưa có dữ liệu Data/Test.csv trên GitHub/Server!**\n\n"
-                 "👉 **Nguyên nhân:** Thư mục `Data/Test.csv` chưa được push lên GitHub của bạn (hoặc bị phân biệt hoa/thường).\n\n"
-                 "👉 **Khắc phục:** Hãy tải file `Test.csv` lên ở thanh bên trái (Sidebar), hoặc commit và push folder `Data/` lên GitHub.")
-        # Dùng tạm fallback để không crash web
-        X_data, axis_x_name, axis_y_name, _ = generate_synthetic_dataset("Two Moons", n_samples, noise_seed)
-else:
-    X_data, axis_x_name, axis_y_name, _ = generate_synthetic_dataset(dataset_type, n_samples, noise_seed)
-
-# ── Elbow Chart (cached) ──────────────────────────────────────────────────
+# %% Cell 05 - Hàm compute_elbow
 @st.cache_data(show_spinner=False)
 def compute_elbow(X_tuple, k_max, seed):
     """Tính Inertia (K-Means) và Silhouette cho k=2..k_max để vẽ Elbow Chart."""
@@ -289,46 +156,13 @@ def compute_elbow(X_tuple, k_max, seed):
             sil_scores.append(0.0)
     return inertias, sil_scores
 
-_elbow_inertias, _elbow_sils = compute_elbow(tuple(map(tuple, X_data)), 6, int(noise_seed))
-_k_range = list(range(2, 7))
-_best_k_sil = _k_range[int(np.argmax(_elbow_sils))]
-
-with st.sidebar.expander(f"📈 Elbow Chart — Gợi ý k tối ưu (k={_best_k_sil})", expanded=False):
-    fig_elbow = go.Figure()
-    fig_elbow.add_trace(go.Scatter(
-        x=_k_range, y=_elbow_inertias, mode='lines+markers+text',
-        name='Inertia (KMeans)', line=dict(color='#2563eb', width=2),
-        marker=dict(size=7, color=['#ef4444' if k == _best_k_sil else '#2563eb' for k in _k_range]),
-        text=[f'{v:.0f}' for v in _elbow_inertias], textposition='top center', textfont=dict(size=9)
-    ))
-    fig_elbow.update_layout(
-        height=200, margin=dict(l=5, r=5, t=10, b=30),
-        xaxis=dict(title='k', tickvals=_k_range),
-        yaxis=dict(title='Inertia', showgrid=True),
-        plot_bgcolor='#f8fafc', showlegend=False
-    )
-    st.plotly_chart(fig_elbow, use_container_width=True)
-
-    fig_sil_bar = go.Figure()
-    fig_sil_bar.add_trace(go.Bar(
-        x=_k_range, y=_elbow_sils,
-        marker_color=['#ef4444' if k == _best_k_sil else '#60a5fa' for k in _k_range],
-        text=[f'{v:.3f}' for v in _elbow_sils], textposition='outside', textfont=dict(size=9)
-    ))
-    fig_sil_bar.update_layout(
-        height=200, margin=dict(l=5, r=5, t=10, b=30),
-        xaxis=dict(title='k', tickvals=_k_range),
-        yaxis=dict(title='Silhouette', range=[0, max(_elbow_sils) * 1.3]),
-        plot_bgcolor='#f8fafc', showlegend=False
-    )
-    st.plotly_chart(fig_sil_bar, use_container_width=True)
-    st.caption(f"🔴 k = **{_best_k_sil}** cho Silhouette cao nhất ({max(_elbow_sils):.3f}). "
-               f"Đường Inertia 'gập khuỷu tay' tại đây là điểm cân bằng tốt nhất.")
-
-# ── End Elbow Chart ───────────────────────────────────────────────────────
-
-# Helper: Tính metrics
+# %% Cell 06 - Hàm compute_metrics
 def compute_metrics(X, labels, exec_time):
+    """Bỏ nhãn nhiễu -1 và tính cùng bộ chỉ số cho mọi thuật toán.
+
+    -1/99/0 là giá trị quy ước cũ khi chỉ số không tính được; không phải
+    kết quả đo chất lượng. Chỉ số không xác định khi chỉ có một cụm.
+    """
     valid_mask = labels != -1
     unique_clusters = len(set(labels[valid_mask]))
     if unique_clusters >= 2:
@@ -354,13 +188,14 @@ def compute_metrics(X, labels, exec_time):
         "Clusters": unique_clusters
     }
 
-# Helper: Vẽ đồ thị Plotly đẹp cho từng thuật toán
+# %% Cell 07 - Hàm make_scatter_figure
 def make_scatter_figure(X, labels, title, reps=None, means=None, centers=None, center_label="Tâm", x_title="X", y_title="Y"):
+    """Tạo hình với màu cụm thống nhất; render_chart áp dụng bố cục chung."""
     df_p = pd.DataFrame(X, columns=['X', 'Y'])
     df_p['Cụm'] = [f"Cụm {l+1}" if l != -1 else "Ngoại lai (Nhiễu)" for l in labels]
-    
+
     color_map = {}
-    palette = px.colors.qualitative.Plotly
+    palette = CLUSTER_COLORS
     for idx, l in enumerate(sorted(list(set(labels)))):
         if l == -1:
             color_map["Ngoại lai (Nhiễu)"] = "#94a3b8"
@@ -416,9 +251,7 @@ def make_scatter_figure(X, labels, title, reps=None, means=None, centers=None, c
     )
     return fig
 
-# ==========================================
-# CHẠY CÁC THUẬT TOÁN ĐỂ LẤY KẾT QUẢ (CACHED)
-# ==========================================
+# %% Cell 08 - Hàm run_all_algorithms
 @st.cache_data(show_spinner="⏳ Đang chạy 4 thuật toán phân cụm...")
 def run_all_algorithms(X_tuple, k, c, alpha, seed):
     """
@@ -467,45 +300,57 @@ def run_all_algorithms(X_tuple, k, c, alpha, seed):
         hier_lbl, hier_met, hier_t
     )
 
-# Chuyển X_data sang tuple để có thể hash trong st.cache_data
-_X_key = tuple(map(tuple, X_data))
+# %% Cell 09 - Hàm run_agnes_4linkage
+@st.cache_data(show_spinner="⏳ Đang chạy 4 biến thể AGNES...")
+def run_agnes_4linkage(X_tuple, k, seed):
+    """Chạy bốn linkage trên cùng X và k; seed giữ trong khóa thực nghiệm."""
+    X = np.array(X_tuple)
+    results = {}
+    for linkage in ['single', 'complete', 'average', 'ward']:
+        t0 = time.time()
+        model = AgglomerativeClustering(n_clusters=k, linkage=linkage)
+        lbl = model.fit_predict(X)
+        elapsed = time.time() - t0
+        results[linkage] = {
+            'labels': lbl,
+            'metrics': compute_metrics(X, lbl, elapsed),
+            'time': elapsed
+        }
+    return results
 
-(
-    cure_labels, cure_reps, cure_means, cure_metrics, cure_time,
-    km_labels,   km_centers, km_metrics, km_time,
-    kmed_labels, kmed_centers, kmed_metrics, kmed_time,
-    hier_labels, hier_metrics, hier_time
-) = run_all_algorithms(_X_key, k_clusters, c_reps, alpha_shrink, noise_seed)
+# %% Cell 10 - Hàm run_diana
+@st.cache_data(show_spinner="⏳ Đang chạy DIANA (Top-down Divisive)...")
+def run_diana(X_tuple, k):
+    """Tính DIANA một lần cho cả tab chi tiết lẫn bảng tổng hợp."""
+    X = np.array(X_tuple)
+    t0 = time.time()
+    model = DIANA(n_clusters=k)
+    model.fit(X)
+    elapsed = time.time() - t0
+    lbl = model.labels_
+    means = model.get_cluster_means_from_X(X)
+    met = compute_metrics(X, lbl, elapsed)
+    return lbl, means, met, elapsed, model.clusters_
 
-# Tái tạo model CURE để dùng lấy representatives trong các hàm vẽ (dùng cached labels)
-cure_model = type('obj', (object,), {
-    'labels_': cure_labels,
-    'get_representatives': lambda self: cure_reps,
-    'get_cluster_means': lambda self: cure_means
-})()
-
-
-
-# ==========================================
-# HÀM TẠO BỘ MÔ PHỎNG CANVAS HTML5 TRỰC QUAN
-# ==========================================
+# %% Cell 11 - Hàm render_canvas_html
 def render_canvas_html(points_2d, k, c, alpha, title_dataset):
+    # Canvas hiện mô phỏng theo tọa độ hiển thị; không dùng để tính chỉ số Python.
     xs = [float(p[0]) for p in points_2d]
     ys = [float(p[1]) for p in points_2d]
     min_x, max_x = min(xs), max(xs)
     min_y, max_y = min(ys), max(ys)
-    
+
     pad = 55
     w, h = 800, 480
-    
+
     norm_pts = []
     for x, y in zip(xs, ys):
         nx = pad + ((x - min_x) / (max_x - min_x + 1e-6)) * (w - 2 * pad)
         ny = (h - pad) - ((y - min_y) / (max_y - min_y + 1e-6)) * (h - 2 * pad)
         norm_pts.append([round(nx, 1), round(ny, 1)])
-        
+
     pts_json = json.dumps(norm_pts)
-    
+
     html = f"""
     <!DOCTYPE html>
     <html>
@@ -707,10 +552,10 @@ def render_canvas_html(points_2d, k, c, alpha, title_dataset):
             const colorName = COLOR_NAMES[idx % COLOR_NAMES.length];
             const count = cl.points.length;
             const pct = ((count / totalPts) * 100).toFixed(1);
-            
+
             let profileTitle = 'Nhóm Khách Hàng Tiềm Năng';
             let profileDesc = 'Mật độ tập trung cao, phân bố đều theo biên độ CURE.';
-            
+
             if (idx === 0) {{
               profileTitle = 'Phân khúc 1: Khách hàng Phổ thông (Trẻ tuổi)';
               profileDesc = 'Chiếm tỷ trọng lớn nhất, mức chi tiêu và độ tuổi trẻ/trung tâm thị trường.';
@@ -900,9 +745,231 @@ def render_canvas_html(points_2d, k, c, alpha, title_dataset):
     """
     return html
 
+
+# %% Cell 12 - Cấu hình trang và giao diện chung
 # ==========================================
-# THIẾT LẬP HỆ THỐNG TABS CHUYÊN BIỆT
+# CẤU HÌNH TRANG STREAMLIT
 # ==========================================
+st.set_page_config(
+    page_title="CURE Clustering Visualizer - HUIT",
+    page_icon="🔬",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+apply_theme()
+
+# Custom CSS giao diện chuẩn HUIT
+st.markdown("""
+<style>
+    .main-header {
+        background: linear-gradient(135deg, #103673 0%, #1f4e79 100%);
+        padding: 22px;
+        border-radius: 12px;
+        color: white;
+        margin-bottom: 25px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+    .huit-title {
+        color: #F2A900 !important;
+        font-weight: 800;
+        letter-spacing: 0.5px;
+        margin: 0;
+        font-size: 22px;
+    }
+    .sub-title {
+        color: #FFFFFF;
+        font-weight: 600;
+        margin: 6px 0 0 0;
+        font-size: 17px;
+    }
+    .metric-card {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 10px;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 48px;
+        white-space: pre-wrap;
+        background-color: #f1f5f9;
+        border-radius: 8px 8px 0 0;
+        padding: 8px 16px;
+        font-weight: 600;
+        color: #1e293b;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #103673 !important;
+        color: #ffffff !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Banner Header
+st.markdown("""
+<div class="main-header">
+    <div class="huit-title">TRƯỜNG ĐẠI HỌC CÔNG THƯƠNG TP. HỒ CHÍ MINH (HUIT)</div>
+    <div class="sub-title">HỆ THỐNG MÔ PHỎNG & ĐỐI SÁNH THUẬT TOÁN PHÂN CỤM CURE</div>
+    <p style="margin: 6px 0 0 0; font-size: 13.5px; opacity: 0.92;">
+        Môn học: Khai thác dữ liệu | Đề tài: <b>Phân cụm dữ liệu dựa trên thuật toán CURE (Clustering Using REpresentatives)</b> &bull; Hỗ trợ Dữ liệu thực tế từ folder <code>Data/</code>
+    </p>
+</div>
+""", unsafe_allow_html=True)
+
+# ==========================================
+# SIDEBAR: CẤU HÌNH THAM SỐ
+# ==========================================
+# %% Cell 13 - Đọc tham số từ sidebar
+st.sidebar.markdown("### ⚙️ CẤU HÌNH THỰC NGHIỆM")
+
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data")
+csv_files = []
+if os.path.exists(DATA_DIR):
+    csv_files = [f for f in os.listdir(DATA_DIR) if f.endswith('.csv')]
+
+dataset_options = [
+    "📁 Dữ liệu từ folder Data (Test.csv - Khách hàng)",
+    "Two Moons (2 Vầng trăng khuyết - Phi cầu)",
+    "Concentric Circles (2 Vòng tròn đồng tâm - Phi cầu)",
+    "Anisotropic Blobs (Cụm kéo dài hình elip)",
+    "Blobs with Outliers (Cụm có điểm ngoại lai/nhiễu)"
+]
+
+dataset_type = st.sidebar.selectbox("1. Chọn tập dữ liệu kiểm thử:", dataset_options, index=0)
+
+selected_feature_pair = "Tuổi (Age) vs Điểm chi tiêu (Spending Score)"
+axis_x_name = "X"
+axis_y_name = "Y"
+df_customer_raw = None
+
+if "Data" in dataset_type:
+    st.sidebar.markdown("#### 📂 Thuộc tính dữ liệu Khách hàng:")
+    feature_pairs = [
+        "Tuổi (Age) vs Điểm chi tiêu (Spending Score)",
+        "Tuổi (Age) vs Kinh nghiệm làm việc (Work Experience)",
+        "Tuổi (Age) vs Quy mô gia đình (Family Size)",
+        "Kinh nghiệm làm việc vs Quy mô gia đình",
+        "Không gian PCA 2D (Tổng hợp các thuộc tính số)"
+    ]
+    selected_feature_pair = st.sidebar.selectbox("Chọn 2 thuộc tính phân cụm:", feature_pairs, index=0)
+    
+    n_samples = st.sidebar.slider(
+        "Kích thước mẫu lấy ngẫu nhiên (s):", 
+        min_value=60, max_value=400, value=140, step=20,
+        help="Pha 1 của thuật toán CURE: Rút trích mẫu ngẫu nhiên s điểm từ cơ sở dữ liệu lớn để giảm chi phí tính toán."
+    )
+else:
+    n_samples = st.sidebar.slider("Số lượng điểm dữ liệu (N):", min_value=120, max_value=600, value=300, step=30)
+
+noise_seed = st.sidebar.number_input("Random Seed:", min_value=1, max_value=999, value=42, step=1)
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🎛️ THAM SỐ THUẬT TOÁN CURE")
+default_k = 3 if "Data" in dataset_type else 2
+k_clusters = st.sidebar.slider("Số cụm mục tiêu (k):", min_value=2, max_value=6, value=default_k, step=1)
+c_reps = st.sidebar.slider("Số điểm đại diện mỗi cụm (c):", min_value=1, max_value=8, value=4, step=1,
+                          help="Càng nhiều điểm đại diện càng nắm bắt được các khúc uốn lượn và phân bố phức tạp của cụm.")
+alpha_shrink = st.sidebar.slider("Hệ số co cụm (alpha):", min_value=0.0, max_value=1.0, value=0.4, step=0.05,
+                                help="0.0: Điểm đại diện giữ nguyên ở biên ngoài | 1.0: Điểm đại diện co hoàn toàn về trọng tâm mean | 0.3-0.5: Tối ưu chống nhiễu.")
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 📈 GỢI Ý SỐ CỤM TỐI ƯU")
+
+
+# ==========================================
+
+
+# %% Cell 14 - Nạp và tiền xử lý dữ liệu dùng chung
+uploaded_file_bytes = None
+if "Data" in dataset_type:
+    # Kiểm tra xem file có trên máy / server không
+    found_path = get_test_csv_path()
+    if found_path is None:
+        st.sidebar.warning("⚠️ Không tìm thấy folder Data/Test.csv trên server!")
+        uploaded_csv = st.sidebar.file_uploader("Tải lên file Test.csv trực tiếp:", type=["csv"])
+        if uploaded_csv is not None:
+            uploaded_file_bytes = uploaded_csv.getvalue()
+            
+    X_data, axis_x_name, axis_y_name, df_customer_raw = load_and_preprocess_customer_data(
+        selected_feature_pair, n_samples, noise_seed, uploaded_file_bytes
+    )
+    if X_data is None:
+        st.error("❌ **Chưa có dữ liệu Data/Test.csv trên GitHub/Server!**\n\n"
+                 "👉 **Nguyên nhân:** Thư mục `Data/Test.csv` chưa được push lên GitHub của bạn (hoặc bị phân biệt hoa/thường).\n\n"
+                 "👉 **Khắc phục:** Hãy tải file `Test.csv` lên ở thanh bên trái (Sidebar), hoặc commit và push folder `Data/` lên GitHub.")
+        # Dùng tạm fallback để không crash web
+        X_data, axis_x_name, axis_y_name, _ = generate_synthetic_dataset("Two Moons", n_samples, noise_seed)
+else:
+    X_data, axis_x_name, axis_y_name, _ = generate_synthetic_dataset(dataset_type, n_samples, noise_seed)
+
+# ── Elbow Chart (cached) ──────────────────────────────────────────────────
+
+# %% Cell 15 - Tính và hiển thị gợi ý số cụm
+_elbow_inertias, _elbow_sils = compute_elbow(tuple(map(tuple, X_data)), 6, int(noise_seed))
+_k_range = list(range(2, 7))
+_best_k_sil = _k_range[int(np.argmax(_elbow_sils))]
+
+with st.sidebar.expander(f"📈 Elbow Chart — Gợi ý k tối ưu (k={_best_k_sil})", expanded=False):
+    fig_elbow = go.Figure()
+    fig_elbow.add_trace(go.Scatter(
+        x=_k_range, y=_elbow_inertias, mode='lines+markers+text',
+        name='Inertia (KMeans)', line=dict(color='#2563eb', width=2),
+        marker=dict(size=7, color=['#ef4444' if k == _best_k_sil else '#2563eb' for k in _k_range]),
+        text=[f'{v:.0f}' for v in _elbow_inertias], textposition='top center', textfont=dict(size=9)
+    ))
+    fig_elbow.update_layout(
+        height=200, margin=dict(l=5, r=5, t=10, b=30),
+        xaxis=dict(title='k', tickvals=_k_range),
+        yaxis=dict(title='Inertia', showgrid=True),
+        plot_bgcolor='#f8fafc', showlegend=False
+    )
+    st.plotly_chart(fig_elbow, use_container_width=True)
+
+    fig_sil_bar = go.Figure()
+    fig_sil_bar.add_trace(go.Bar(
+        x=_k_range, y=_elbow_sils,
+        marker_color=['#ef4444' if k == _best_k_sil else '#60a5fa' for k in _k_range],
+        text=[f'{v:.3f}' for v in _elbow_sils], textposition='outside', textfont=dict(size=9)
+    ))
+    fig_sil_bar.update_layout(
+        height=200, margin=dict(l=5, r=5, t=10, b=30),
+        xaxis=dict(title='k', tickvals=_k_range),
+        yaxis=dict(title='Silhouette', range=[0, max(_elbow_sils) * 1.3]),
+        plot_bgcolor='#f8fafc', showlegend=False
+    )
+    st.plotly_chart(fig_sil_bar, use_container_width=True)
+    st.caption(f"🔴 k = **{_best_k_sil}** cho Silhouette cao nhất ({max(_elbow_sils):.3f}). "
+               f"Đường Inertia 'gập khuỷu tay' tại đây là điểm cân bằng tốt nhất.")
+
+# ── End Elbow Chart ───────────────────────────────────────────────────────
+
+# %% Cell 16 - Tính kết quả tất cả thuật toán trước khi dựng tab
+# Chuyển X_data sang tuple để có thể hash trong st.cache_data
+_X_key = tuple(map(tuple, X_data))
+
+(
+    cure_labels, cure_reps, cure_means, cure_metrics, cure_time,
+    km_labels,   km_centers, km_metrics, km_time,
+    kmed_labels, kmed_centers, kmed_metrics, kmed_time,
+    hier_labels, hier_metrics, hier_time
+) = run_all_algorithms(_X_key, k_clusters, c_reps, alpha_shrink, noise_seed)
+
+agnes_results = run_agnes_4linkage(_X_key, k_clusters, noise_seed)
+diana_labels, diana_means, diana_metrics, diana_time, diana_clusters = run_diana(_X_key, k_clusters)
+
+# Một nguồn số liệu cho biểu đồ và bảng tổng hợp của toàn bộ ứng dụng.
+all_metrics = {
+    "CURE": cure_metrics, "K-Means": km_metrics, "K-Medoids": kmed_metrics,
+    **{f"AGNES ({linkage})": result['metrics'] for linkage, result in agnes_results.items()},
+    "DIANA": diana_metrics,
+}
+data_context = f"Dữ liệu: {dataset_type} | N = {len(X_data)} | k = {k_clusters} | c = {c_reps} | α = {alpha_shrink} | Seed = {noise_seed}"
+
+# %% Cell 17 - Khai báo tab theo thứ tự đọc và hiển thị
 tab_cure_sim, tab_cure_main, tab_cure_steps, tab_cure_flow, tab_vs_kmeans, tab_vs_kmedoids, tab_vs_hier, tab_vs_agnes, tab_vs_diana, tab_summary, tab_outlier = st.tabs([
     "🎮 Mô Phỏng Tương Tác (Canvas HTML5)",
     "🎯 CURE: Trực quan hóa & Phân cụm",
@@ -917,11 +984,10 @@ tab_cure_sim, tab_cure_main, tab_cure_steps, tab_cure_flow, tab_vs_kmeans, tab_v
     "🔎 Phân tích Ngoại lai (Outlier)"
 ])
 
-# ==============================================================================
-# TAB MỚI: MÔ PHỎNG TƯƠNG TÁC TỪNG BƯỚC (CANVAS HTML5 NHÚNG TRỰC TIẾP)
-# ==============================================================================
+# %% Cell 18 - Tab 01: 🎮 Mô Phỏng Tương Tác Từng Bước (Interactive CURE Visualizer)
+# Dùng dữ liệu và kết quả đã chuẩn bị ở các cell phía trên.
 with tab_cure_sim:
-    st.markdown("### 🎮 Mô Phỏng Tương Tác Từng Bước (Interactive CURE Visualizer)")
+    render_tab_header('🎮 Mô Phỏng Tương Tác Từng Bước (Interactive CURE Visualizer)', 'Quan sát quá trình gom cụm từng bước và đối chiếu với kết quả CURE.', data_context)
     if "Data" in dataset_type:
         st.info(f"📊 Đang sử dụng dữ liệu thực tế: **Data/Test.csv** | Cặp thuộc tính: **{selected_feature_pair}** | Kích thước mẫu: **{len(X_data)} khách hàng**.")
     else:
@@ -935,7 +1001,7 @@ with tab_cure_sim:
     col_btn_l, col_btn_r = st.columns([2, 1])
     with col_btn_l:
         st.markdown("""
-        <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; padding: 12px; border-radius: 8px; font-size: 13px; color: #166534;">
+        <div class="app-card">
             <b>💡 Hướng dẫn thao tác trực quan:</b><br>
             • Nhấp <b>"⏩ 1 Bước (Step)"</b> để theo dõi cặp cụm gần nhất sáp nhập và quan sát cách <b>c</b> điểm đại diện co rút <b>α</b> về phía tâm.<br>
             • Nhấp <b>"▶️ Chạy Tự Động"</b> để xem toàn bộ quá trình gom cụm diễn ra sinh động.<br>
@@ -960,7 +1026,7 @@ with tab_cure_sim:
     st.markdown("---")
     st.markdown("#### 📋 Phân Tích & Giải Thích Chi Tiết Kết Quả Phân Cụm (Báo Cáo Học Thuật)")
     
-    col_exp_1, col_exp_2 = st.columns([1.6, 1.4])
+    col_exp_1, col_exp_2 = st.columns(2)
     
     with col_exp_1:
         st.markdown("##### 1. Thống kê Phân bổ Từng Cụm Khách Hàng")
@@ -1018,7 +1084,7 @@ with tab_cure_sim:
             })
             
         df_cluster_report = pd.DataFrame(cluster_rows)
-        st.dataframe(df_cluster_report, use_container_width=True, hide_index=True)
+        render_table(df_cluster_report)
 
     with col_exp_2:
         st.markdown("##### 2. Nhận Định Tại Sao CURE Vượt Trội Trên Tập Này")
@@ -1031,14 +1097,13 @@ with tab_cure_sim:
         """)
 
 
-# ==============================================================================
-# TAB 1: CURE TRỰC QUAN HÓA CHI TIẾT
-# ==============================================================================
+# %% Cell 19 - Tab 02: 🎯 Kết Quả Phân Cụm Thuật Toán CURE
+# Dùng dữ liệu và kết quả đã chuẩn bị ở các cell phía trên.
 with tab_cure_main:
-    st.markdown("### 🎯 Kết Quả Phân Cụm Thuật Toán CURE")
+    render_tab_header('🎯 Kết Quả Phân Cụm Thuật Toán CURE', 'Xem phân bố cụm, điểm đại diện và chỉ số đánh giá trên dữ liệu đã chọn.', data_context)
     st.markdown(f"Đang phân cụm trên tập: **{dataset_type}** với $N = {len(X_data)}$ điểm dữ liệu.")
 
-    col_c1, col_c2 = st.columns([3, 1])
+    col_c1, col_c2 = st.columns(2)
 
     with col_c1:
         fig_cure = make_scatter_figure(
@@ -1047,17 +1112,14 @@ with tab_cure_main:
             reps=cure_reps, means=cure_means,
             x_title=axis_x_name, y_title=axis_y_name
         )
-        st.plotly_chart(fig_cure, use_container_width=True)
+        render_chart(fig_cure, key="tab_chart_1")
 
     with col_c2:
         st.markdown("#### 📊 Chỉ số Đánh giá Chất lượng")
-        st.metric("Silhouette Score", f"{cure_metrics['Silhouette']:.4f}", help="Càng gần 1 càng phân cụm tốt")
-        st.metric("Davies-Bouldin Index", f"{cure_metrics['Davies-Bouldin']:.4f}", help="Càng nhỏ cụm càng đặc và tách biệt")
-        st.metric("Calinski-Harabasz", f"{cure_metrics['Calinski-Harabasz']:.1f}")
-        st.metric("Thời gian thực thi", f"{cure_time:.4f} giây")
+        render_metrics(cure_metrics)
 
         st.markdown("""
-        <div style="background-color: #e0f2fe; padding: 12px; border-radius: 8px; font-size: 12.5px; border-left: 4px solid #0284c7;">
+        <div class="app-card">
             <b>Ý nghĩa trực quan của CURE:</b><br>
             • <b>Dấu X đen:</b> $c$ điểm đại diện đã co cụm về phía tâm.<br>
             • <b>Ngôi sao vàng:</b> Trọng tâm mean của cụm.<br>
@@ -1067,14 +1129,13 @@ with tab_cure_main:
 
     if df_customer_raw is not None:
         with st.expander("📋 Xem trước Dữ liệu gốc khách hàng từ folder Data/Test.csv"):
-            st.dataframe(df_customer_raw.head(20), use_container_width=True)
+            render_table(df_customer_raw.head(20))
 
 
-# ==============================================================================
-# TAB 2: CURE VÍ DỤ TÍNH TAY TỪNG BƯỚC (TOY EXAMPLE)
-# ==============================================================================
+# %% Cell 20 - Tab 03: 📝 Bài toán Ví dụ Tính tay Từng bước (Toy Example)
+# Dùng dữ liệu và kết quả đã chuẩn bị ở các cell phía trên.
 with tab_cure_steps:
-    st.markdown("### 📝 Bài toán Ví dụ Tính tay Từng bước (Toy Example)")
+    render_tab_header('📝 Bài toán Ví dụ Tính tay Từng bước (Toy Example)', 'Theo dõi phép tính CURE trên bộ dữ liệu minh họa cố định gồm 6 điểm.', "Ví dụ cố định: N = 6 | k = 2 | c = 2 | α = 0.5")
     st.markdown(r"""
     Nhóm thiết lập một tập dữ liệu nhỏ gồm **6 điểm 2D cụ thể** để minh họa chính xác từng bước hoạt động của thuật toán CURE:
     * Cụm bên trái: $P_1(1, 2)$, $P_2(2, 3)$, $P_3(2, 1)$
@@ -1091,9 +1152,9 @@ with tab_cure_steps:
     ], horizontal=True)
 
     step_idx = int(step_choice.split(":")[0].replace("Bước ", ""))
-    step_img = f"toy_example_steps/step_{step_idx}.png"
+    step_img = os.path.join(os.path.dirname(__file__), "toy_example_steps", f"step_{step_idx}.png")
 
-    col_t1, col_t2 = st.columns([1.8, 1.2])
+    col_t1, col_t2 = st.columns(2)
 
     with col_t1:
         if os.path.exists(step_img):
@@ -1144,13 +1205,12 @@ with tab_cure_steps:
             """)
 
 
-# ==============================================================================
-# TAB 3: CURE QUY TRÌNH 5 GIAI ĐOẠN & LƯU ĐỒ KHỐI
-# ==============================================================================
+# %% Cell 21 - Tab 04: 🔍 Quy trình 5 Giai đoạn & Kiến trúc Xử lý Dữ liệu lớn
+# Dùng dữ liệu và kết quả đã chuẩn bị ở các cell phía trên.
 with tab_cure_flow:
-    st.markdown("### 🔍 Quy trình 5 Giai đoạn & Kiến trúc Xử lý Dữ liệu lớn")
+    render_tab_header('🔍 Quy trình 5 Giai đoạn & Kiến trúc Xử lý Dữ liệu lớn', 'Tìm hiểu các giai đoạn của CURE và ý nghĩa của các tham số.', "Nội dung lý thuyết; các giai đoạn mở rộng không phải đều đã cài đặt trong bản demo.")
     
-    col_f1, col_f2 = st.columns([1.5, 1])
+    col_f1, col_f2 = st.columns(2)
 
     with col_f1:
         st.markdown(r"""
@@ -1180,14 +1240,13 @@ with tab_cure_flow:
             "Ý nghĩa": ["Đại diện cho tập lớn N", "Chia nhỏ để tăng tốc", "Định hình đường biên cụm", "Khoảng đệm an toàn chống nhiễu", "Mục tiêu bài toán"],
             "Giá trị khuyến nghị": ["2.000 – 5.000", "2 – 4 phân vùng", "4 – 8 điểm", "0.3 – 0.5", "Tùy bài toán thực tế"]
         })
-        st.table(df_params)
+        render_table(df_params)
 
 
-# ==============================================================================
-# TAB 4: SO SÁNH 1-1: CURE VS K-MEANS
-# ==============================================================================
+# %% Cell 22 - Tab 05: ⚔️ So sánh Đối đầu Trực diện: CURE vs K-Means
+# Dùng dữ liệu và kết quả đã chuẩn bị ở các cell phía trên.
 with tab_vs_kmeans:
-    st.markdown("### ⚔️ So sánh Đối đầu Trực diện: CURE vs K-Means")
+    render_tab_header('⚔️ So sánh Đối đầu Trực diện: CURE vs K-Means', 'Đối chiếu CURE và K-Means trên cùng dữ liệu và cùng số cụm.', data_context)
     st.markdown("#### 🎯 Trọng tâm kiểm thử: Khắc phục hạn chế giả định cụm hình cầu của K-Means")
 
     col_km1, col_km2 = st.columns(2)
@@ -1200,8 +1259,8 @@ with tab_vs_kmeans:
             reps=cure_reps, means=cure_means,
             x_title=axis_x_name, y_title=axis_y_name
         )
-        st.plotly_chart(fig_c_km, use_container_width=True)
-        st.write(f"**Silhouette Score:** `{cure_metrics['Silhouette']:.4f}` | **Thời gian:** `{cure_time:.4f}s`")
+        render_chart(fig_c_km, key="tab_chart_2")
+        render_metrics(cure_metrics)
         st.success("✅ **Ưu thế của CURE:** Ôm trọn vẹn dải cong phi cầu và phân bố tự nhiên nhờ c điểm đại diện rải đều!")
 
     with col_km2:
@@ -1212,8 +1271,8 @@ with tab_vs_kmeans:
             means=km_centers,
             x_title=axis_x_name, y_title=axis_y_name
         )
-        st.plotly_chart(fig_km, use_container_width=True)
-        st.write(f"**Silhouette Score:** `{km_metrics['Silhouette']:.4f}` | **Thời gian:** `{km_time:.4f}s`")
+        render_chart(fig_km, key="tab_chart_3")
+        render_metrics(km_metrics)
         if "Moons" in dataset_type or "Circles" in dataset_type:
             st.error("❌ **Thất bại hình học:** K-Means cắt đôi cụm phi cầu do chỉ dùng 1 tâm trung bình!")
         else:
@@ -1249,14 +1308,13 @@ with tab_vs_kmeans:
             f"{km_metrics['Davies-Bouldin']:.4f}"
         ]
     })
-    st.table(df_cmp_km)
+    render_table(df_cmp_km)
 
 
-# ==============================================================================
-# TAB 5: SO SÁNH 1-1: CURE VS K-MEDOIDS (PAM)
-# ==============================================================================
+# %% Cell 23 - Tab 06: ⚔️ So sánh Đối đầu Trực diện: CURE vs K-Medoids (PAM)
+# Dùng dữ liệu và kết quả đã chuẩn bị ở các cell phía trên.
 with tab_vs_kmedoids:
-    st.markdown("### ⚔️ So sánh Đối đầu Trực diện: CURE vs K-Medoids (PAM)")
+    render_tab_header('⚔️ So sánh Đối đầu Trực diện: CURE vs K-Medoids (PAM)', 'Đối chiếu CURE và K-Medoids trên cùng dữ liệu và cùng số cụm.', data_context)
     st.markdown("#### 🎯 Trọng tâm kiểm thử: Khả năng kháng điểm ngoại lai (Outliers) và cụm dị hướng (Anisotropic)")
 
     col_kmed1, col_kmed2 = st.columns(2)
@@ -1269,8 +1327,8 @@ with tab_vs_kmedoids:
             reps=cure_reps, means=cure_means,
             x_title=axis_x_name, y_title=axis_y_name
         )
-        st.plotly_chart(fig_c_kmed, use_container_width=True)
-        st.write(f"**Silhouette Score:** `{cure_metrics['Silhouette']:.4f}` | **Thời gian:** `{cure_time:.4f}s`")
+        render_chart(fig_c_kmed, key="tab_chart_4")
+        render_metrics(cure_metrics)
         st.success("✅ **Miễn nhiễm ngoại lai:** Co cụm giúp điểm đại diện lùi vào sâu bên trong lõi cụm!")
 
     with col_kmed2:
@@ -1281,8 +1339,8 @@ with tab_vs_kmedoids:
             centers=kmed_centers, center_label="Medoid thực tế",
             x_title=axis_x_name, y_title=axis_y_name
         )
-        st.plotly_chart(fig_kmed, use_container_width=True)
-        st.write(f"**Silhouette Score:** `{kmed_metrics['Silhouette']:.4f}` | **Thời gian:** `{kmed_time:.4f}s`")
+        render_chart(fig_kmed, key="tab_chart_5")
+        render_metrics(kmed_metrics)
         st.warning("⚠️ **Hạn chế:** Giảm nhạy cảm với ngoại lai hơn K-Means nhưng vẫn giả định cụm hình cầu và tốn chi phí hoán đổi.")
 
     st.markdown("#### 📋 Bảng Đối chiếu Trực tiếp: CURE vs K-Medoids")
@@ -1315,14 +1373,13 @@ with tab_vs_kmedoids:
             f"{kmed_metrics['Davies-Bouldin']:.4f}"
         ]
     })
-    st.table(df_cmp_kmed)
+    render_table(df_cmp_kmed)
 
 
-# ==============================================================================
-# TAB 6: SO SÁNH 1-1: CURE VS HIERARCHICAL (SINGLE LINKAGE)
-# ==============================================================================
+# %% Cell 24 - Tab 07: ⚔️ So sánh Đối đầu Trực diện: CURE vs Gom cụm Phân cấp (Single Linkage)
+# Dùng dữ liệu và kết quả đã chuẩn bị ở các cell phía trên.
 with tab_vs_hier:
-    st.markdown("### ⚔️ So sánh Đối đầu Trực diện: CURE vs Gom cụm Phân cấp (Single Linkage)")
+    render_tab_header('⚔️ So sánh Đối đầu Trực diện: CURE vs Gom cụm Phân cấp (Single Linkage)', 'Đối chiếu CURE và phân cụm phân cấp Single Linkage.', data_context)
     st.markdown("#### 🎯 Trọng tâm kiểm thử: Khắc phục hiện tượng nối chuỗi (Chaining Effect) và Tối ưu bộ nhớ")
 
     col_h1, col_h2 = st.columns(2)
@@ -1335,8 +1392,8 @@ with tab_vs_hier:
             reps=cure_reps, means=cure_means,
             x_title=axis_x_name, y_title=axis_y_name
         )
-        st.plotly_chart(fig_c_hier, use_container_width=True)
-        st.write(f"**Silhouette Score:** `{cure_metrics['Silhouette']:.4f}` | **Thời gian:** `{cure_time:.4f}s`")
+        render_chart(fig_c_hier, key="tab_chart_6")
+        render_metrics(cure_metrics)
         st.success("✅ **Không bị nối chuỗi:** Các điểm đại diện co cụm tạo khoảng cách ngăn cách an toàn!")
 
     with col_h2:
@@ -1346,8 +1403,8 @@ with tab_vs_hier:
             f"Hierarchical Single Linkage: Dễ bị dính cụm do nhiễu nối chuỗi",
             x_title=axis_x_name, y_title=axis_y_name
         )
-        st.plotly_chart(fig_hier, use_container_width=True)
-        st.write(f"**Silhouette Score:** `{hier_metrics['Silhouette']:.4f}` | **Thời gian:** `{hier_time:.4f}s`")
+        render_chart(fig_hier, key="tab_chart_7")
+        render_metrics(hier_metrics)
         if "Outliers" in dataset_type:
             st.error("❌ **Hiện tượng nối chuỗi:** Các điểm ngoại lai nằm giữa đã nối dính 2 cụm riêng biệt lại với nhau!")
         else:
@@ -1383,20 +1440,234 @@ with tab_vs_hier:
             f"{hier_metrics['Davies-Bouldin']:.4f}"
         ]
     })
-    st.table(df_cmp_hier)
+    render_table(df_cmp_hier)
 
 
-
-# ==============================================================================
-# TAB: DIANA — PHÂN CỤM PHÂN CẤP CHIA CẮT (TOP-DOWN DIVISIVE)
-# ==============================================================================
-with tab_vs_diana:
-    st.markdown("### ✂️ DIANA (Divisive Analysis) — Phân cụm Phân cấp Chia cắt (Top-down)")
+# %% Cell 25 - Tab 08: 🔗 AGNES (Agglomerative Nesting) — So sánh 4 kiểu Linkage
+# Dùng dữ liệu và kết quả đã chuẩn bị ở các cell phía trên.
+with tab_vs_agnes:
+    render_tab_header('🔗 AGNES (Agglomerative Nesting) — So sánh 4 kiểu Linkage', 'Đối chiếu bốn cách đo khoảng cách giữa các cụm trong AGNES.', data_context)
 
     # ─── Giới thiệu ─────────────────────────────────────────────────────────
     st.markdown("""
-    <div style="background:#fdf4ff;border:1px solid #e9d5ff;border-left:5px solid #9333ea;
-                padding:14px 16px;border-radius:8px;margin-bottom:18px;">
+    <div class="app-card">
+        <b style="color:#1e40af;font-size:14px;">📌 AGNES là gì và liên quan gì đến CURE?</b><br>
+        <span style="font-size:13px;color:#374151;">
+        <b>AGNES</b> là phương pháp phân cụm phân cấp <b>hướng từ dưới lên (Bottom-up)</b>: ban đầu mỗi điểm là 1 cụm,
+        sau đó liên tục gom 2 cụm gần nhau nhất thành 1 — giống như CURE.<br><br>
+        Sự khác biệt nằm ở <b>cách đo "khoảng cách giữa 2 cụm"</b> — AGNES có 4 cách (linkage), mỗi cách
+        cho kết quả phân cụm rất khác nhau. <b>CURE chính là bản nâng cấp của AGNES Single Linkage</b>
+        — thêm co cụm α để chống nối chuỗi và nhiều điểm đại diện để nắm hình dạng phức tạp.
+        </span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ─── Chạy 4 AGNES với cache ──────────────────────────────────────────────
+
+
+    linkage_info = {
+        'single':   {'name': 'Single Linkage',   'icon': '🔵', 'color': '#2563eb',
+                     'mo_ta': 'Khoảng cách = 2 điểm GẦN NHẤT của 2 cụm',
+                     'uu': 'Tìm được cụm phi cầu, hình cong uốn lượn',
+                     'nhuoc': 'Dễ bị "nối chuỗi" (Chaining Effect) khi có nhiễu'},
+        'complete': {'name': 'Complete Linkage', 'icon': '🔴', 'color': '#dc2626',
+                     'mo_ta': 'Khoảng cách = 2 điểm XA NHẤT của 2 cụm',
+                     'uu': 'Tạo cụm gọn, đều, ít bị nối chuỗi',
+                     'nhuoc': 'Nhạy với outlier — 1 điểm xa làm lệch khoảng cách'},
+        'average':  {'name': 'Average Linkage',  'icon': '🟡', 'color': '#d97706',
+                     'mo_ta': 'Khoảng cách = TRUNG BÌNH tất cả cặp điểm giữa 2 cụm',
+                     'uu': 'Cân bằng giữa Single và Complete, ít nhạy outlier',
+                     'nhuoc': 'Chi phí tính toán cao hơn Single/Complete'},
+        'ward':     {'name': 'Ward Linkage',     'icon': '🟢', 'color': '#16a34a',
+                     'mo_ta': 'Gom sao cho tổng variance trong cụm tăng ÍT NHẤT',
+                     'uu': 'Cụm compact, cân đối — tốt nhất thực tế với dữ liệu hình cầu',
+                     'nhuoc': 'Giả định cụm hình cầu (giống K-Means), kém với phi cầu'},
+    }
+
+    # ─── Phần 1: Giải thích 4 linkage ────────────────────────────────────────
+    st.markdown("#### 📖 1. Cách hoạt động của từng Linkage")
+
+    col_l1, col_l2 = st.columns(2)
+    for i, (key, info) in enumerate(linkage_info.items()):
+        col = col_l1 if i < 2 else col_l2
+        with col:
+            st.markdown(f"""
+            <div class="app-card">
+                <div style="font-weight:700;color:{info['color']};font-size:13px;">
+                    {info['icon']} {info['name']}
+                </div>
+                <div style="font-size:12px;color:#475569;margin:4px 0;">
+                    <b>Cách đo:</b> {info['mo_ta']}
+                </div>
+                <div style="font-size:12px;color:#16a34a;">✅ <b>Ưu điểm:</b> {info['uu']}</div>
+                <div style="font-size:12px;color:#dc2626;">❌ <b>Nhược điểm:</b> {info['nhuoc']}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    st.markdown("""
+    <div class="app-card">
+        <b>💡 Ghi nhớ công thức tổng quát:</b><br>
+        &nbsp;&nbsp;• <b>Single</b> = min(dist) &nbsp;|&nbsp;
+        <b>Complete</b> = max(dist) &nbsp;|&nbsp;
+        <b>Average</b> = mean(dist) &nbsp;|&nbsp;
+        <b>Ward</b> = min(ΔVariance)<br>
+        Trong đó dist là khoảng cách giữa từng cặp điểm (1 điểm từ cụm A, 1 điểm từ cụm B).
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ─── Phần 2: Biểu đồ 4 linkage song song ────────────────────────────────
+    st.markdown("#### 📊 2. Kết quả phân cụm trực quan — 4 Linkage trên cùng dữ liệu")
+
+    col_g1, col_g2 = st.columns(2)
+    col_g3, col_g4 = st.columns(2)
+    grid_cols = [col_g1, col_g2, col_g3, col_g4]
+
+    for i, (key, info) in enumerate(linkage_info.items()):
+        res = agnes_results[key]
+        lbl = res['labels']
+        met = res['metrics']
+        with grid_cols[i]:
+            st.markdown(f"##### {info['icon']} {info['name']}")
+            fig = make_scatter_figure(
+                X_data, lbl,
+                f"{info['name']} (k={k_clusters})",
+                x_title=axis_x_name, y_title=axis_y_name
+            )
+            render_chart(fig, key=f"tab_chart_8_{i}")
+            render_metrics(met)
+
+    # ─── Phần 3: Bảng so sánh 4 linkage vs CURE ─────────────────────────────
+    st.markdown("#### 📋 3. Bảng Đối chiếu: CURE vs AGNES 4 Linkage")
+
+    rows = []
+    # Hàng CURE
+    rows.append({
+        "Thuật toán": "🟩 CURE (Đề tài)",
+        "Cơ chế đo khoảng cách": f"Min dist giữa {c_reps} điểm đại diện ĐÃ CO (α={alpha_shrink})",
+        "Nhận diện phi cầu": "✅ Xuất sắc",
+        "Kháng nối chuỗi": "✅ Xuất sắc (nhờ co cụm α)",
+        "Kháng Outlier": "✅ Rất tốt (α + 2 pha lọc)",
+        f"Silhouette (k={k_clusters})": f"{cure_metrics['Silhouette']:.4f}",
+        "DB Index": f"{cure_metrics['Davies-Bouldin']:.4f}",
+        "Thời gian": f"{cure_time:.4f}s",
+    })
+    for key, info in linkage_info.items():
+        res = agnes_results[key]
+        met = res['metrics']
+        phi_cau = "✅ Tốt" if key == 'single' else ("⚠️ Trung bình" if key == 'average' else "❌ Kém")
+        chaining = "❌ Kém" if key == 'single' else ("✅ Tốt" if key in ['complete', 'ward'] else "⚠️ Trung bình")
+        outlier  = "❌ Nhạy" if key == 'complete' else ("⚠️ Trung bình" if key == 'single' else "✅ Tốt")
+        rows.append({
+            "Thuật toán": f"{info['icon']} AGNES {info['name']}",
+            "Cơ chế đo khoảng cách": info['mo_ta'],
+            "Nhận diện phi cầu": phi_cau,
+            "Kháng nối chuỗi": chaining,
+            "Kháng Outlier": outlier,
+            f"Silhouette (k={k_clusters})": f"{met['Silhouette']:.4f}",
+            "DB Index": f"{met['Davies-Bouldin']:.4f}",
+            "Thời gian": f"{res['time']:.4f}s",
+        })
+    df_agnes_cmp = pd.DataFrame(rows)
+    render_table(df_agnes_cmp)
+
+    # ─── Phần 4: Bar Chart Silhouette so sánh ────────────────────────────────
+    st.markdown("#### 📈 4. So sánh Silhouette Score — CURE vs AGNES 4 Linkage")
+
+    labels_bar = ["CURE"] + [f"AGNES\n{linkage_info[k]['name'].split()[0]}" for k in linkage_info]
+    sil_bar_vals = [cure_metrics['Silhouette']] + [agnes_results[k]['metrics']['Silhouette'] for k in linkage_info]
+    colors_bar = ['#103673', '#2563eb', '#dc2626', '#d97706', '#16a34a']
+    best_idx = int(np.argmax(sil_bar_vals))
+
+    fig_bar_agnes = go.Figure(data=[go.Bar(
+        x=labels_bar, y=sil_bar_vals,
+        marker_color=colors_bar,
+        text=[f"{v:.4f}" for v in sil_bar_vals],
+        textposition='outside',
+        textfont=dict(size=11)
+    )])
+    # Vẽ đường dấu sao tại CURE
+    fig_bar_agnes.add_hline(
+        y=cure_metrics['Silhouette'], line_dash="dash", line_color="#103673",
+        annotation_text=f"CURE: {cure_metrics['Silhouette']:.4f}",
+        annotation_position="bottom right", annotation_font_color="#103673"
+    )
+    fig_bar_agnes.update_layout(
+        height=380,
+        margin=dict(l=10, r=10, t=30, b=10),
+        plot_bgcolor="#fafbfc",
+        yaxis=dict(title="Silhouette Score (Càng cao càng tốt)", range=[-0.15, max(sil_bar_vals) * 1.25]),
+        xaxis=dict(title="Thuật toán"),
+        showlegend=False
+    )
+    render_chart(fig_bar_agnes, key="tab_chart_9")
+
+    # ─── Phần 5: Giải thích kết quả và kết luận ──────────────────────────────
+    best_agnes_key = max(linkage_info.keys(), key=lambda k: agnes_results[k]['metrics']['Silhouette'])
+    best_agnes_info = linkage_info[best_agnes_key]
+    best_agnes_sil  = agnes_results[best_agnes_key]['metrics']['Silhouette']
+
+    cure_vs_best = "tốt hơn" if cure_metrics['Silhouette'] >= best_agnes_sil else "kém hơn"
+    diff_pct = abs(cure_metrics['Silhouette'] - best_agnes_sil) / max(abs(best_agnes_sil), 1e-6) * 100
+
+    st.markdown(f"""
+    <div class="app-card">
+        <b>💡 Đọc kết quả biểu đồ trên:</b><br><br>
+        <ul style="margin:0 0 0 16px;line-height:1.9;">
+            <li><b>Silhouette Score</b> đo mức độ gắn kết trong cụm và tách biệt giữa các cụm —
+                càng gần 1.0 càng tốt, âm là phân cụm sai.</li>
+            <li>Trong 4 biến thể AGNES, <b>{best_agnes_info['icon']} {best_agnes_info['name']}</b>
+                đạt Silhouette cao nhất ({best_agnes_sil:.4f}) trên tập dữ liệu hiện tại.</li>
+            <li>CURE đạt {cure_metrics['Silhouette']:.4f} — <b>{cure_vs_best}</b> biến thể AGNES tốt nhất
+                khoảng {diff_pct:.1f}%.</li>
+            <li>Tuy nhiên, Silhouette chỉ đo hình học — CURE vượt trội thực sự ở khả năng
+                <b>nhận diện cụm phi cầu, kháng nối chuỗi và xử lý dữ liệu lớn</b>
+                mà AGNES thuần không có.</li>
+        </ul>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ─── Kết luận ─────────────────────────────────────────────────────────────
+    st.markdown("""
+    <div class="app-card">
+        <div style="font-size:15px;font-weight:700;margin-bottom:10px;">
+            🎯 Kết luận: CURE = AGNES được nâng cấp toàn diện
+        </div>
+        <div style="font-size:13px;line-height:1.9;opacity:0.95;">
+            <table style="width:100%;border-collapse:collapse;">
+                <tr style="border-bottom:1px solid rgba(255,255,255,0.2);">
+                    <td style="padding:4px 8px;font-weight:600;">Vấn đề của AGNES</td>
+                    <td style="padding:4px 8px;font-weight:600;">Giải pháp của CURE</td>
+                </tr>
+                <tr style="border-bottom:1px solid rgba(255,255,255,0.15);">
+                    <td style="padding:4px 8px;">Single dễ bị nối chuỗi</td>
+                    <td style="padding:4px 8px;">Co cụm α kéo đại diện vào trong → ngăn chaining</td>
+                </tr>
+                <tr style="border-bottom:1px solid rgba(255,255,255,0.15);">
+                    <td style="padding:4px 8px;">Complete/Ward nhạy với hình dạng</td>
+                    <td style="padding:4px 8px;">c điểm đại diện trải đều → nhận diện hình phi cầu</td>
+                </tr>
+                <tr style="border-bottom:1px solid rgba(255,255,255,0.15);">
+                    <td style="padding:4px 8px;">Tất cả AGNES tốn O(N²) bộ nhớ</td>
+                    <td style="padding:4px 8px;">Lấy mẫu s + gán nhãn O(N) → chạy trên Big Data</td>
+                </tr>
+                <tr>
+                    <td style="padding:4px 8px;">Không lọc ngoại lai</td>
+                    <td style="padding:4px 8px;">2 pha lọc outlier tự động trong quá trình gom</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# %% Cell 26 - Tab 09: ✂️ DIANA (Divisive Analysis) — Phân cụm Phân cấp Chia cắt (Top-down)
+# Dùng dữ liệu và kết quả đã chuẩn bị ở các cell phía trên.
+with tab_vs_diana:
+    render_tab_header('✂️ DIANA (Divisive Analysis) — Phân cụm Phân cấp Chia cắt (Top-down)', 'Quan sát cách DIANA chia cụm và đối chiếu với CURE.', data_context)
+
+    # ─── Giới thiệu ─────────────────────────────────────────────────────────
+    st.markdown("""
+    <div class="app-card">
         <b style="color:#6b21a8;font-size:14px;">📌 DIANA là gì? Khác AGNES và CURE như thế nào?</b><br>
         <span style="font-size:13px;color:#374151;">
         <b>DIANA</b> là thuật toán phân cụm phân cấp <b>hướng từ trên xuống (Top-down / Divisive)</b>:
@@ -1416,8 +1687,7 @@ with tab_vs_diana:
     col_d1, col_d2 = st.columns([1, 1])
     with col_d1:
         st.markdown("""
-        <div style="border:1px solid #e9d5ff;border-left:4px solid #9333ea;
-                    padding:14px;border-radius:8px;font-size:13px;line-height:1.9;">
+        <div class="app-card">
             <b style="color:#6b21a8;">Thuật toán DIANA (5 bước):</b><br>
             <ol style="margin:8px 0 0 16px;color:#374151;">
                 <li><b>Khởi tạo:</b> 1 cụm duy nhất chứa tất cả N điểm dữ liệu.</li>
@@ -1436,8 +1706,7 @@ with tab_vs_diana:
 
     with col_d2:
         st.markdown("""
-        <div style="border:1px solid #e9d5ff;border-left:4px solid #9333ea;
-                    padding:14px;border-radius:8px;font-size:13px;line-height:1.9;">
+        <div class="app-card">
             <b style="color:#6b21a8;">So sánh trực quan DIANA vs AGNES:</b><br><br>
             <div style="font-family:monospace;font-size:12px;color:#374151;">
             <b>AGNES (Bottom-up):</b><br>
@@ -1455,23 +1724,7 @@ with tab_vs_diana:
         """, unsafe_allow_html=True)
 
     # ─── Chạy DIANA với cache ────────────────────────────────────────────────
-    @st.cache_data(show_spinner="⏳ Đang chạy DIANA (Top-down Divisive)...")
-    def run_diana(X_tuple, k):
-        X = np.array(X_tuple)
-        import time as _time
-        t0 = _time.time()
-        model = DIANA(n_clusters=k)
-        model.fit(X)
-        elapsed = _time.time() - t0
-        lbl = model.labels_
-        means = model.get_cluster_means_from_X(X)
-        met = compute_metrics(X, lbl, elapsed)
-        return lbl, means, met, elapsed, model.clusters_
 
-    _X_key_diana = tuple(map(tuple, X_data))
-    diana_labels, diana_means, diana_metrics, diana_time, diana_clusters = run_diana(
-        _X_key_diana, k_clusters
-    )
 
     # ─── Scatter plots so sánh CURE vs DIANA ────────────────────────────────
     st.markdown("#### 📊 2. Kết quả phân cụm trực quan: CURE vs DIANA")
@@ -1485,56 +1738,27 @@ with tab_vs_diana:
             reps=cure_reps, means=cure_means,
             x_title=axis_x_name, y_title=axis_y_name
         )
-        fig_cure_d.update_layout(height=400, margin=dict(l=10, r=10, t=40, b=10))
-        st.plotly_chart(fig_cure_d, use_container_width=True)
-        st.markdown(f"""
-        <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:12px;">
-            <span style="background:#16a34a;color:white;padding:3px 10px;border-radius:12px;font-weight:600;">
-                Silhouette: {cure_metrics['Silhouette']:.4f}
-            </span>
-            <span style="background:#f1f5f9;color:#334155;padding:3px 10px;border-radius:12px;">
-                DB: {cure_metrics['Davies-Bouldin']:.4f}
-            </span>
-            <span style="background:#f1f5f9;color:#334155;padding:3px 10px;border-radius:12px;">
-                ⏱ {cure_time:.4f}s
-            </span>
-        </div>
-        """, unsafe_allow_html=True)
+        render_chart(fig_cure_d, key="tab_chart_10")
+        render_metrics(cure_metrics)
         st.success("✅ **CURE:** Gom từng điểm lên → nhiều điểm đại diện + co cụm α → kháng nhiễu & phi cầu.")
 
     with col_dc2:
         st.markdown("##### 🟣 DIANA — Top-down (Tách từ trên xuống)")
-        diana_badge = "#16a34a" if diana_metrics['Silhouette'] >= 0.4 else (
-            "#d97706" if diana_metrics['Silhouette'] >= 0.2 else "#dc2626")
         fig_diana = make_scatter_figure(
             X_data, diana_labels,
             f"DIANA: {k_clusters} cụm — Tách từ 1 cụm lớn xuống",
             means=diana_means,
             x_title=axis_x_name, y_title=axis_y_name
         )
-        fig_diana.update_layout(height=400, margin=dict(l=10, r=10, t=40, b=10))
-        st.plotly_chart(fig_diana, use_container_width=True)
-        st.markdown(f"""
-        <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:12px;">
-            <span style="background:{diana_badge};color:white;padding:3px 10px;border-radius:12px;font-weight:600;">
-                Silhouette: {diana_metrics['Silhouette']:.4f}
-            </span>
-            <span style="background:#f1f5f9;color:#334155;padding:3px 10px;border-radius:12px;">
-                DB: {diana_metrics['Davies-Bouldin']:.4f}
-            </span>
-            <span style="background:#f1f5f9;color:#334155;padding:3px 10px;border-radius:12px;">
-                ⏱ {diana_time:.4f}s
-            </span>
-        </div>
-        """, unsafe_allow_html=True)
+        render_chart(fig_diana, key="tab_chart_11")
+        render_metrics(diana_metrics)
         st.info("ℹ️ **DIANA:** Tách từ đại cụm → dựa vào đường kính và avg-dissimilarity để chia nhỏ dần.")
 
     # ─── Thống kê cụm DIANA ──────────────────────────────────────────────────
     st.markdown("#### 🔬 3. Chi tiết từng cụm DIANA")
 
     st.markdown("""
-    <div style="background:#fefce8;border:1px solid #fef08a;border-left:4px solid #ca8a04;
-                padding:10px 14px;border-radius:6px;font-size:13px;margin-bottom:12px;">
+    <div class="app-card">
         <b>💡 Đọc bảng này như thế nào?</b>
         Mỗi hàng là 1 cụm mà DIANA tách ra được. <b>Splinter</b> là điểm đầu tiên bị tách ra để
         "kéo" theo những điểm xung quanh hình thành cụm con. Kích thước cụm cho thấy DIANA có xu hướng
@@ -1556,7 +1780,7 @@ with tab_vs_diana:
             f"Tâm {axis_y_name[:10]}": f"{mean_pt[1]:.2f}",
         })
     df_diana_clusters = pd.DataFrame(diana_cluster_rows)
-    st.dataframe(df_diana_clusters, use_container_width=True, hide_index=True)
+    render_table(df_diana_clusters)
 
     # ─── Bảng đối chiếu CURE vs DIANA ───────────────────────────────────────
     st.markdown("#### 📋 4. Bảng Đối chiếu Toàn diện: CURE vs DIANA")
@@ -1605,7 +1829,7 @@ with tab_vs_diana:
             f"{diana_time:.4f}s",
         ],
     })
-    st.dataframe(df_cure_diana, use_container_width=True, hide_index=True)
+    render_table(df_cure_diana)
 
     # ─── Khi nào dùng DIANA? ─────────────────────────────────────────────────
     st.markdown("#### 💡 5. Khi nào nên dùng DIANA thay vì AGNES hay CURE?")
@@ -1613,7 +1837,7 @@ with tab_vs_diana:
     col_dw1, col_dw2, col_dw3 = st.columns(3)
     with col_dw1:
         st.markdown("""
-        <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px;">
+        <div class="app-card">
             <b style="color:#15803d;">✅ DIANA phù hợp khi:</b>
             <ul style="font-size:12.5px;margin:8px 0 0 14px;line-height:1.8;color:#374151;">
                 <li>Muốn nhận ra <b>cụm toàn cục</b> trước (global → local)</li>
@@ -1625,7 +1849,7 @@ with tab_vs_diana:
         """, unsafe_allow_html=True)
     with col_dw2:
         st.markdown("""
-        <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px;">
+        <div class="app-card">
             <b style="color:#b91c1c;">❌ DIANA không phù hợp khi:</b>
             <ul style="font-size:12.5px;margin:8px 0 0 14px;line-height:1.8;color:#374151;">
                 <li>Dữ liệu <b>lớn</b> (N > 1000) — chi phí O(N²) quá nặng</li>
@@ -1636,7 +1860,7 @@ with tab_vs_diana:
         """, unsafe_allow_html=True)
     with col_dw3:
         st.markdown("""
-        <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px;">
+        <div class="app-card">
             <b style="color:#1d4ed8;">🏆 Trong đề tài này:</b>
             <ul style="font-size:12.5px;margin:8px 0 0 14px;line-height:1.8;color:#374151;">
                 <li>DIANA là <b>đối trọng thú vị</b> với CURE/AGNES vì hướng ngược lại</li>
@@ -1648,8 +1872,7 @@ with tab_vs_diana:
 
     # ─── Kết luận ─────────────────────────────────────────────────────────────
     st.markdown("""
-    <div style="background:linear-gradient(135deg,#6b21a8,#9333ea);color:white;
-                padding:18px 20px;border-radius:10px;margin-top:16px;">
+    <div class="app-card">
         <div style="font-size:15px;font-weight:700;margin-bottom:8px;">
             🎯 Kết luận: DIANA hoàn thiện bức tranh Hierarchical Clustering
         </div>
@@ -1666,37 +1889,37 @@ with tab_vs_diana:
     """, unsafe_allow_html=True)
 
 
-# ==============================================================================
-# TAB 7: BẢNG TỔNG HỢP MA TRẬN ĐỐI SÁNH TẤT CẢ THUẬT TOÁN
-# ==============================================================================
+# %% Cell 27 - Tab 10: 📋 Bảng Tổng hợp Ma trận Đối sánh Toàn diện
+# Dùng dữ liệu và kết quả đã chuẩn bị ở các cell phía trên.
 with tab_summary:
-    st.markdown("### 📋 Bảng Tổng hợp Ma trận Đối sánh Toàn diện")
+    render_tab_header('📋 Bảng Tổng hợp Ma trận Đối sánh Toàn diện', 'Tổng hợp chỉ số của các thuật toán trên cùng dữ liệu đầu vào.', data_context)
     st.markdown("Bảng tổng hợp đối đầu giữa **CURE** và các thuật toán phân cụm trong chương trình môn học:")
 
     # Đồ thị Bar Chart so sánh Silhouette Score
-    algs_names = ["CURE", "K-Means", "K-Medoids", "Hierarchical (Single)"]
-    sils = [cure_metrics['Silhouette'], km_metrics['Silhouette'], kmed_metrics['Silhouette'], hier_metrics['Silhouette']]
-    dbs = [cure_metrics['Davies-Bouldin'], km_metrics['Davies-Bouldin'], kmed_metrics['Davies-Bouldin'], hier_metrics['Davies-Bouldin']]
-    times = [cure_metrics['Time'], km_metrics['Time'], kmed_metrics['Time'], hier_metrics['Time']]
+    algs_names = list(all_metrics)
+    sils = [metrics['Silhouette'] for metrics in all_metrics.values()]
+    dbs = [metrics['Davies-Bouldin'] for metrics in all_metrics.values()]
+    times = [metrics['Time'] for metrics in all_metrics.values()]
+    render_table(pd.DataFrame(all_metrics).T.rename_axis("Thuật toán").reset_index())
 
     col_s1, col_s2 = st.columns(2)
     with col_s1:
         fig_bar_sil = go.Figure(data=[
             go.Bar(name='Silhouette Score (Càng cao càng tốt)', x=algs_names, y=sils,
-                   marker_color=['#103673', '#0284c7', '#dc2626', '#8b5cf6'],
+                   marker_color=[CLUSTER_COLORS[i % len(CLUSTER_COLORS)] for i in range(len(algs_names))],
                    text=[f"{v:.3f}" for v in sils], textposition='auto')
         ])
-        fig_bar_sil.update_layout(title="Chỉ số Silhouette Score trên Tập dữ liệu Hiện hành", height=340, yaxis=dict(range=[-0.2, 1.0]))
-        st.plotly_chart(fig_bar_sil, use_container_width=True)
+        fig_bar_sil.update_layout(title="Chỉ số Silhouette Score trên Tập dữ liệu Hiện hành", height=340, yaxis=dict(range=[-1.0, 1.0]))
+        render_chart(fig_bar_sil, key="tab_chart_12")
 
     with col_s2:
         fig_bar_time = go.Figure(data=[
             go.Bar(name='Thời gian thực thi (giây)', x=algs_names, y=times,
-                   marker_color=['#103673', '#0284c7', '#dc2626', '#8b5cf6'],
+                   marker_color=[CLUSTER_COLORS[i % len(CLUSTER_COLORS)] for i in range(len(algs_names))],
                    text=[f"{v:.4f}s" for v in times], textposition='auto')
         ])
         fig_bar_time.update_layout(title="Thời gian Thực thi (giây)", height=340)
-        st.plotly_chart(fig_bar_time, use_container_width=True)
+        render_chart(fig_bar_time, key="tab_chart_13")
 
     st.markdown("#### 🏆 Ma trận Đánh giá Tổng kết Toàn diện")
     df_full_summary = pd.DataFrame({
@@ -1751,274 +1974,13 @@ with tab_summary:
             "Chỉ dùng cho dữ liệu nhỏ và không có ngoại lai"
         ]
     })
-    st.table(df_full_summary)
+    render_table(df_full_summary)
 
 
-
-
-# ==============================================================================
-# TAB: AGNES — SO SÁNH 4 LINKAGE
-# ==============================================================================
-with tab_vs_agnes:
-    st.markdown("### 🔗 AGNES (Agglomerative Nesting) — So sánh 4 kiểu Linkage")
-
-    # ─── Giới thiệu ─────────────────────────────────────────────────────────
-    st.markdown("""
-    <div style="background:#eff6ff;border:1px solid #bfdbfe;border-left:5px solid #2563eb;
-                padding:14px 16px;border-radius:8px;margin-bottom:18px;">
-        <b style="color:#1e40af;font-size:14px;">📌 AGNES là gì và liên quan gì đến CURE?</b><br>
-        <span style="font-size:13px;color:#374151;">
-        <b>AGNES</b> là phương pháp phân cụm phân cấp <b>hướng từ dưới lên (Bottom-up)</b>: ban đầu mỗi điểm là 1 cụm,
-        sau đó liên tục gom 2 cụm gần nhau nhất thành 1 — giống như CURE.<br><br>
-        Sự khác biệt nằm ở <b>cách đo "khoảng cách giữa 2 cụm"</b> — AGNES có 4 cách (linkage), mỗi cách
-        cho kết quả phân cụm rất khác nhau. <b>CURE chính là bản nâng cấp của AGNES Single Linkage</b>
-        — thêm co cụm α để chống nối chuỗi và nhiều điểm đại diện để nắm hình dạng phức tạp.
-        </span>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # ─── Chạy 4 AGNES với cache ──────────────────────────────────────────────
-    @st.cache_data(show_spinner="⏳ Đang chạy 4 biến thể AGNES...")
-    def run_agnes_4linkage(X_tuple, k, seed):
-        X = np.array(X_tuple)
-        results = {}
-        for linkage in ['single', 'complete', 'average', 'ward']:
-            t0 = time.time()
-            model = AgglomerativeClustering(n_clusters=k, linkage=linkage)
-            lbl = model.fit_predict(X)
-            elapsed = time.time() - t0
-            results[linkage] = {
-                'labels': lbl,
-                'metrics': compute_metrics(X, lbl, elapsed),
-                'time': elapsed
-            }
-        return results
-
-    _X_key_agnes = tuple(map(tuple, X_data))
-    agnes_results = run_agnes_4linkage(_X_key_agnes, k_clusters, noise_seed)
-
-    linkage_info = {
-        'single':   {'name': 'Single Linkage',   'icon': '🔵', 'color': '#2563eb',
-                     'mo_ta': 'Khoảng cách = 2 điểm GẦN NHẤT của 2 cụm',
-                     'uu': 'Tìm được cụm phi cầu, hình cong uốn lượn',
-                     'nhuoc': 'Dễ bị "nối chuỗi" (Chaining Effect) khi có nhiễu'},
-        'complete': {'name': 'Complete Linkage', 'icon': '🔴', 'color': '#dc2626',
-                     'mo_ta': 'Khoảng cách = 2 điểm XA NHẤT của 2 cụm',
-                     'uu': 'Tạo cụm gọn, đều, ít bị nối chuỗi',
-                     'nhuoc': 'Nhạy với outlier — 1 điểm xa làm lệch khoảng cách'},
-        'average':  {'name': 'Average Linkage',  'icon': '🟡', 'color': '#d97706',
-                     'mo_ta': 'Khoảng cách = TRUNG BÌNH tất cả cặp điểm giữa 2 cụm',
-                     'uu': 'Cân bằng giữa Single và Complete, ít nhạy outlier',
-                     'nhuoc': 'Chi phí tính toán cao hơn Single/Complete'},
-        'ward':     {'name': 'Ward Linkage',     'icon': '🟢', 'color': '#16a34a',
-                     'mo_ta': 'Gom sao cho tổng variance trong cụm tăng ÍT NHẤT',
-                     'uu': 'Cụm compact, cân đối — tốt nhất thực tế với dữ liệu hình cầu',
-                     'nhuoc': 'Giả định cụm hình cầu (giống K-Means), kém với phi cầu'},
-    }
-
-    # ─── Phần 1: Giải thích 4 linkage ────────────────────────────────────────
-    st.markdown("#### 📖 1. Cách hoạt động của từng Linkage")
-
-    col_l1, col_l2 = st.columns(2)
-    for i, (key, info) in enumerate(linkage_info.items()):
-        col = col_l1 if i < 2 else col_l2
-        with col:
-            st.markdown(f"""
-            <div style="border:1px solid #e2e8f0;border-left:4px solid {info['color']};
-                        padding:12px 14px;border-radius:8px;margin-bottom:10px;">
-                <div style="font-weight:700;color:{info['color']};font-size:13px;">
-                    {info['icon']} {info['name']}
-                </div>
-                <div style="font-size:12px;color:#475569;margin:4px 0;">
-                    <b>Cách đo:</b> {info['mo_ta']}
-                </div>
-                <div style="font-size:12px;color:#16a34a;">✅ <b>Ưu điểm:</b> {info['uu']}</div>
-                <div style="font-size:12px;color:#dc2626;">❌ <b>Nhược điểm:</b> {info['nhuoc']}</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-    st.markdown("""
-    <div style="background:#fefce8;border:1px solid #fef08a;border-left:4px solid #ca8a04;
-                padding:10px 14px;border-radius:6px;font-size:13px;margin-bottom:16px;">
-        <b>💡 Ghi nhớ công thức tổng quát:</b><br>
-        &nbsp;&nbsp;• <b>Single</b> = min(dist) &nbsp;|&nbsp;
-        <b>Complete</b> = max(dist) &nbsp;|&nbsp;
-        <b>Average</b> = mean(dist) &nbsp;|&nbsp;
-        <b>Ward</b> = min(ΔVariance)<br>
-        Trong đó dist là khoảng cách giữa từng cặp điểm (1 điểm từ cụm A, 1 điểm từ cụm B).
-    </div>
-    """, unsafe_allow_html=True)
-
-    # ─── Phần 2: Biểu đồ 4 linkage song song ────────────────────────────────
-    st.markdown("#### 📊 2. Kết quả phân cụm trực quan — 4 Linkage trên cùng dữ liệu")
-
-    col_g1, col_g2 = st.columns(2)
-    col_g3, col_g4 = st.columns(2)
-    grid_cols = [col_g1, col_g2, col_g3, col_g4]
-
-    for i, (key, info) in enumerate(linkage_info.items()):
-        res = agnes_results[key]
-        lbl = res['labels']
-        met = res['metrics']
-        with grid_cols[i]:
-            st.markdown(f"##### {info['icon']} {info['name']}")
-            fig = make_scatter_figure(
-                X_data, lbl,
-                f"{info['name']} (k={k_clusters})",
-                x_title=axis_x_name, y_title=axis_y_name
-            )
-            fig.update_layout(height=350, margin=dict(l=10, r=10, t=40, b=10))
-            st.plotly_chart(fig, use_container_width=True)
-            sil_val = met['Silhouette']
-            db_val  = met['Davies-Bouldin']
-            t_val   = res['time']
-            # Màu badge theo Silhouette
-            badge_color = "#16a34a" if sil_val >= 0.4 else ("#d97706" if sil_val >= 0.2 else "#dc2626")
-            st.markdown(f"""
-            <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:11.5px;margin-top:4px;">
-                <span style="background:{badge_color};color:white;padding:2px 8px;border-radius:12px;font-weight:600;">
-                    Silhouette: {sil_val:.4f}
-                </span>
-                <span style="background:#f1f5f9;color:#334155;padding:2px 8px;border-radius:12px;">
-                    DB Index: {db_val:.4f}
-                </span>
-                <span style="background:#f1f5f9;color:#334155;padding:2px 8px;border-radius:12px;">
-                    ⏱ {t_val:.4f}s
-                </span>
-            </div>
-            """, unsafe_allow_html=True)
-
-    # ─── Phần 3: Bảng so sánh 4 linkage vs CURE ─────────────────────────────
-    st.markdown("#### 📋 3. Bảng Đối chiếu: CURE vs AGNES 4 Linkage")
-
-    rows = []
-    # Hàng CURE
-    rows.append({
-        "Thuật toán": "🟩 CURE (Đề tài)",
-        "Cơ chế đo khoảng cách": f"Min dist giữa {c_reps} điểm đại diện ĐÃ CO (α={alpha_shrink})",
-        "Nhận diện phi cầu": "✅ Xuất sắc",
-        "Kháng nối chuỗi": "✅ Xuất sắc (nhờ co cụm α)",
-        "Kháng Outlier": "✅ Rất tốt (α + 2 pha lọc)",
-        f"Silhouette (k={k_clusters})": f"{cure_metrics['Silhouette']:.4f}",
-        "DB Index": f"{cure_metrics['Davies-Bouldin']:.4f}",
-        "Thời gian": f"{cure_time:.4f}s",
-    })
-    for key, info in linkage_info.items():
-        res = agnes_results[key]
-        met = res['metrics']
-        phi_cau = "✅ Tốt" if key == 'single' else ("⚠️ Trung bình" if key == 'average' else "❌ Kém")
-        chaining = "❌ Kém" if key == 'single' else ("✅ Tốt" if key in ['complete', 'ward'] else "⚠️ Trung bình")
-        outlier  = "❌ Nhạy" if key == 'complete' else ("⚠️ Trung bình" if key == 'single' else "✅ Tốt")
-        rows.append({
-            "Thuật toán": f"{info['icon']} AGNES {info['name']}",
-            "Cơ chế đo khoảng cách": info['mo_ta'],
-            "Nhận diện phi cầu": phi_cau,
-            "Kháng nối chuỗi": chaining,
-            "Kháng Outlier": outlier,
-            f"Silhouette (k={k_clusters})": f"{met['Silhouette']:.4f}",
-            "DB Index": f"{met['Davies-Bouldin']:.4f}",
-            "Thời gian": f"{res['time']:.4f}s",
-        })
-    df_agnes_cmp = pd.DataFrame(rows)
-    st.dataframe(df_agnes_cmp, use_container_width=True, hide_index=True)
-
-    # ─── Phần 4: Bar Chart Silhouette so sánh ────────────────────────────────
-    st.markdown("#### 📈 4. So sánh Silhouette Score — CURE vs AGNES 4 Linkage")
-
-    labels_bar = ["CURE"] + [f"AGNES\n{linkage_info[k]['name'].split()[0]}" for k in linkage_info]
-    sil_bar_vals = [cure_metrics['Silhouette']] + [agnes_results[k]['metrics']['Silhouette'] for k in linkage_info]
-    colors_bar = ['#103673', '#2563eb', '#dc2626', '#d97706', '#16a34a']
-    best_idx = int(np.argmax(sil_bar_vals))
-
-    fig_bar_agnes = go.Figure(data=[go.Bar(
-        x=labels_bar, y=sil_bar_vals,
-        marker_color=colors_bar,
-        text=[f"{v:.4f}" for v in sil_bar_vals],
-        textposition='outside',
-        textfont=dict(size=11)
-    )])
-    # Vẽ đường dấu sao tại CURE
-    fig_bar_agnes.add_hline(
-        y=cure_metrics['Silhouette'], line_dash="dash", line_color="#103673",
-        annotation_text=f"CURE: {cure_metrics['Silhouette']:.4f}",
-        annotation_position="bottom right", annotation_font_color="#103673"
-    )
-    fig_bar_agnes.update_layout(
-        height=380,
-        margin=dict(l=10, r=10, t=30, b=10),
-        plot_bgcolor="#fafbfc",
-        yaxis=dict(title="Silhouette Score (Càng cao càng tốt)", range=[-0.15, max(sil_bar_vals) * 1.25]),
-        xaxis=dict(title="Thuật toán"),
-        showlegend=False
-    )
-    st.plotly_chart(fig_bar_agnes, use_container_width=True)
-
-    # ─── Phần 5: Giải thích kết quả và kết luận ──────────────────────────────
-    best_agnes_key = max(linkage_info.keys(), key=lambda k: agnes_results[k]['metrics']['Silhouette'])
-    best_agnes_info = linkage_info[best_agnes_key]
-    best_agnes_sil  = agnes_results[best_agnes_key]['metrics']['Silhouette']
-
-    cure_vs_best = "tốt hơn" if cure_metrics['Silhouette'] >= best_agnes_sil else "kém hơn"
-    diff_pct = abs(cure_metrics['Silhouette'] - best_agnes_sil) / max(abs(best_agnes_sil), 1e-6) * 100
-
-    st.markdown(f"""
-    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-left:4px solid #16a34a;
-                padding:14px 16px;border-radius:8px;font-size:13px;margin-top:8px;">
-        <b>💡 Đọc kết quả biểu đồ trên:</b><br><br>
-        <ul style="margin:0 0 0 16px;line-height:1.9;">
-            <li><b>Silhouette Score</b> đo mức độ gắn kết trong cụm và tách biệt giữa các cụm —
-                càng gần 1.0 càng tốt, âm là phân cụm sai.</li>
-            <li>Trong 4 biến thể AGNES, <b>{best_agnes_info['icon']} {best_agnes_info['name']}</b>
-                đạt Silhouette cao nhất ({best_agnes_sil:.4f}) trên tập dữ liệu hiện tại.</li>
-            <li>CURE đạt {cure_metrics['Silhouette']:.4f} — <b>{cure_vs_best}</b> biến thể AGNES tốt nhất
-                khoảng {diff_pct:.1f}%.</li>
-            <li>Tuy nhiên, Silhouette chỉ đo hình học — CURE vượt trội thực sự ở khả năng
-                <b>nhận diện cụm phi cầu, kháng nối chuỗi và xử lý dữ liệu lớn</b>
-                mà AGNES thuần không có.</li>
-        </ul>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # ─── Kết luận ─────────────────────────────────────────────────────────────
-    st.markdown("""
-    <div style="background:linear-gradient(135deg,#103673,#1e40af);color:white;
-                padding:18px 20px;border-radius:10px;margin-top:16px;">
-        <div style="font-size:15px;font-weight:700;margin-bottom:10px;">
-            🎯 Kết luận: CURE = AGNES được nâng cấp toàn diện
-        </div>
-        <div style="font-size:13px;line-height:1.9;opacity:0.95;">
-            <table style="width:100%;border-collapse:collapse;">
-                <tr style="border-bottom:1px solid rgba(255,255,255,0.2);">
-                    <td style="padding:4px 8px;font-weight:600;">Vấn đề của AGNES</td>
-                    <td style="padding:4px 8px;font-weight:600;">Giải pháp của CURE</td>
-                </tr>
-                <tr style="border-bottom:1px solid rgba(255,255,255,0.15);">
-                    <td style="padding:4px 8px;">Single dễ bị nối chuỗi</td>
-                    <td style="padding:4px 8px;">Co cụm α kéo đại diện vào trong → ngăn chaining</td>
-                </tr>
-                <tr style="border-bottom:1px solid rgba(255,255,255,0.15);">
-                    <td style="padding:4px 8px;">Complete/Ward nhạy với hình dạng</td>
-                    <td style="padding:4px 8px;">c điểm đại diện trải đều → nhận diện hình phi cầu</td>
-                </tr>
-                <tr style="border-bottom:1px solid rgba(255,255,255,0.15);">
-                    <td style="padding:4px 8px;">Tất cả AGNES tốn O(N²) bộ nhớ</td>
-                    <td style="padding:4px 8px;">Lấy mẫu s + gán nhãn O(N) → chạy trên Big Data</td>
-                </tr>
-                <tr>
-                    <td style="padding:4px 8px;">Không lọc ngoại lai</td>
-                    <td style="padding:4px 8px;">2 pha lọc outlier tự động trong quá trình gom</td>
-                </tr>
-            </table>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-# ==============================================================================
-# TAB: PHÂN TÍCH NGOẠI LAI (OUTLIER ANALYSIS)
-# ==============================================================================
+# %% Cell 28 - Tab 11: 🔎 Phân tích Ngoại lai (Outlier Analysis) — Khách hàng Cao tuổi
+# Dùng dữ liệu và kết quả đã chuẩn bị ở các cell phía trên.
 with tab_outlier:
-    st.markdown("### 🔎 Phân tích Ngoại lai (Outlier Analysis) — Khách hàng Cao tuổi")
+    render_tab_header('🔎 Phân tích Ngoại lai (Outlier Analysis) — Khách hàng Cao tuổi', 'Khảo sát nhóm khách hàng từ 70 tuổi trong mẫu dữ liệu đang chọn.', data_context)
 
     # Chỉ hoạt động khi dùng dữ liệu thực tế
     if "Data" not in dataset_type or df_customer_raw is None:
@@ -2028,7 +1990,7 @@ with tab_outlier:
         # Phần 0: Giới thiệu
         # ──────────────────────────────────────────────────────────
         st.markdown("""
-        <div style="background:#eff6ff;border:1px solid #bfdbfe;border-left:5px solid #2563eb;padding:14px 16px;border-radius:8px;margin-bottom:18px;">
+        <div class="app-card">
             <b style="color:#1e40af;font-size:14px;">📌 Mục tiêu của tab này là gì?</b><br>
             <span style="font-size:13px;color:#374151;">
             Trong phân cụm khách hàng, <b>ngoại lai (Outlier)</b> là những điểm dữ liệu nằm <b>rất xa phần lớn</b> các điểm còn lại —
@@ -2042,9 +2004,8 @@ with tab_outlier:
         """, unsafe_allow_html=True)
 
         # ──────────────────────────────────────────────────────────
-        # Chuẩn bị dữ liệu toàn bộ (không lấy mẫu)
+        # Dùng đúng mẫu đã phân cụm để số liệu nhất quán giữa các tab
         # ──────────────────────────────────────────────────────────
-        import pandas as pd
         spend_map_ol = {'Low': 1, 'Average': 2, 'High': 3}
         df_full = df_customer_raw.copy()
 
@@ -2074,7 +2035,7 @@ with tab_outlier:
         col_m4.metric("Tuổi TB nhóm ≥ 70", f"{df_full[df_full['Is_Outlier']]['Age'].mean():.1f}")
 
         st.markdown("""
-        <div style="background:#fefce8;border:1px solid #fef08a;border-left:4px solid #ca8a04;padding:10px 14px;border-radius:6px;margin:8px 0 14px 0;font-size:13px;">
+        <div class="app-card">
             <b>💡 Giải thích:</b> Trong tập 2.627 khách hàng, có <b>255 người (9.7%)</b> từ <b>70 tuổi trở lên</b>.
             Đây là những điểm nằm ở "đuôi phải" của phân phối tuổi — xa so với đa số và có hành vi tiêu dùng rất khác biệt.
             Thuật ngữ thống kê gọi những điểm như vậy là <b>Outlier</b>.
@@ -2107,12 +2068,11 @@ with tab_outlier:
                 xaxis=dict(title="Nhóm tuổi"),
                 yaxis=dict(title="Số khách hàng")
             )
-            st.plotly_chart(fig_hist, use_container_width=True)
+            render_chart(fig_hist, key="tab_chart_14")
             st.caption("🔴 Đường đỏ đứt là ngưỡng phân tách Outlier (≥ 70 tuổi). Cột đỏ = nhóm ngoại lai.")
 
         with col_scat:
             st.markdown("##### Scatter: Tuổi vs Chi tiêu (highlight ngoại lai)")
-            import plotly.graph_objects as go
             df_normal_plot = df_full[~df_full['Is_Outlier']]
             df_outlier_plot = df_full[df_full['Is_Outlier']]
 
@@ -2139,7 +2099,7 @@ with tab_outlier:
                 xaxis=dict(title="Tuổi (Age)", showgrid=True, gridcolor='#f1f5f9'),
                 yaxis=dict(title="Chi tiêu (1=Low, 2=Avg, 3=High)", showgrid=True, gridcolor='#f1f5f9')
             )
-            st.plotly_chart(fig_scat, use_container_width=True)
+            render_chart(fig_scat, key="tab_chart_15")
             st.caption("⭐ Các ngôi sao đỏ = nhóm ≥ 70 tuổi. Nhận thấy chi tiêu của họ **không thấp** — tập trung nhiều ở mức High!")
 
         # ──────────────────────────────────────────────────────────
@@ -2180,10 +2140,10 @@ with tab_outlier:
             ]
         }
         df_compare = pd.DataFrame(so_sanh_data)
-        st.dataframe(df_compare, use_container_width=True, hide_index=True)
+        render_table(df_compare)
 
         st.markdown("""
-        <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-left:4px solid #16a34a;padding:12px 14px;border-radius:6px;font-size:13px;margin-top:6px;">
+        <div class="app-card">
             <b>💡 Đọc kết quả bảng này như thế nào?</b><br>
             Nhóm khách hàng ≥ 70 tuổi <b>nghịch lý</b> so với kỳ vọng ban đầu:
             <ul style="margin:6px 0 0 16px;">
@@ -2220,7 +2180,7 @@ with tab_outlier:
                 plot_bgcolor="#fafbfc",
                 yaxis=dict(range=[0, 2.8])
             )
-            st.plotly_chart(fig_trend, use_container_width=True)
+            render_chart(fig_trend, key="tab_chart_16")
 
         with col_trend2:
             fam_by_age = df_full.groupby('NhomTuoi', observed=True)['Family_Size'].mean().reset_index()
@@ -2239,10 +2199,10 @@ with tab_outlier:
                 plot_bgcolor="#fafbfc",
                 yaxis=dict(range=[0, 4.2])
             )
-            st.plotly_chart(fig_fam, use_container_width=True)
+            render_chart(fig_fam, key="tab_chart_17")
 
         st.markdown("""
-        <div style="background:#fdf4ff;border:1px solid #e9d5ff;border-left:4px solid #9333ea;padding:12px 14px;border-radius:6px;font-size:13px;margin-top:4px;">
+        <div class="app-card">
             <b>🔍 Phân tích xu hướng:</b><br>
             Hai biểu đồ trên tiết lộ một <b>"quy luật ngược"</b> trong dữ liệu:<br>
             <ul style="margin:6px 0 0 16px;">
@@ -2262,7 +2222,7 @@ with tab_outlier:
 
         with col_why1:
             st.markdown("""
-            <div style="background:#eff6ff;border:1px solid #bfdbfe;padding:14px;border-radius:8px;height:100%;">
+            <div class="app-card">
                 <div style="font-weight:700;color:#1e40af;margin-bottom:8px;">🟢 Cách CURE xử lý</div>
                 <ul style="font-size:13px;color:#1e3a5f;line-height:1.8;margin-left:14px;">
                     <li><b>Cơ chế co cụm α:</b> Các điểm đại diện được kéo vào bên trong lõi cụm, giảm ảnh hưởng của các điểm ngoại vi như nhóm 84.8 tuổi.</li>
@@ -2274,7 +2234,7 @@ with tab_outlier:
 
         with col_why2:
             st.markdown("""
-            <div style="background:#fef2f2;border:1px solid #fecaca;padding:14px;border-radius:8px;height:100%;">
+            <div class="app-card">
                 <div style="font-weight:700;color:#991b1b;margin-bottom:8px;">🔴 Cách K-Means xử lý (sai)</div>
                 <ul style="font-size:13px;color:#7f1d1d;line-height:1.8;margin-left:14px;">
                     <li><b>Tâm bị kéo lệch:</b> Khi nhóm 84.8 tuổi bị gộp vào Cụm 2 (35.8 tuổi TB), tâm cụm bị lệch lên → ranh giới phân cụm không còn phản ánh thực tế.</li>
@@ -2339,7 +2299,7 @@ with tab_outlier:
         # Phần 7: Kết luận
         # ──────────────────────────────────────────────────────────
         st.markdown("""
-        <div style="background:linear-gradient(135deg,#103673,#1e40af);color:white;padding:18px 20px;border-radius:10px;margin-top:16px;">
+        <div class="app-card">
             <div style="font-size:15px;font-weight:700;margin-bottom:8px;">🎯 Kết luận của Tab Phân tích Ngoại lai</div>
             <div style="font-size:13px;line-height:1.8;opacity:0.95;">
                 Nhóm khách hàng <b>≥ 70 tuổi</b> trong dữ liệu là một <b>Outlier theo nghĩa thống kê</b> (cách xa phần lớn phân phối)
@@ -2353,6 +2313,9 @@ with tab_outlier:
             </div>
         </div>
         """, unsafe_allow_html=True)
+
+
+# %% Cell 29 - Chân trang
 
 st.markdown("---")
 st.markdown("""
