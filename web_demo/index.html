@@ -1,0 +1,61 @@
+<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CURE — Sandbox độc lập</title><style>
+*{box-sizing:border-box}body{margin:0;background:#f1f5f9;color:#334155;font:14px 'Segoe UI',sans-serif}header{background:#103673;color:white;padding:22px}h1{font-size:22px;margin:0 0 8px}main{max-width:1200px;margin:20px auto;padding:0 16px;display:grid;grid-template-columns:240px 1fr;gap:18px}aside,article{background:white;border:1px solid #dbe3ec;border-radius:12px;padding:18px}label{display:block;margin:14px 0 6px;font-weight:600}select,input[type=number],button{padding:9px;border:1px solid #cbd5e1;border-radius:7px;color:#103673;background:white;max-width:100%}select,input[type=range]{width:100%}button{cursor:pointer}button.primary{background:#103673;color:white}button:focus-visible{outline:2px solid #2563eb}canvas{width:100%;height:auto;background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;touch-action:none;cursor:crosshair}.row{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.note{font-size:12px;color:#64748b;line-height:1.6}#status{padding:12px;background:#eff6ff;border-radius:8px;line-height:1.6}#summary{line-height:1.7}a{color:inherit}@media(max-width:700px){main{grid-template-columns:1fr}aside{display:flex;flex-direction:column}header h1{font-size:19px}}</style></head><body>
+<header><h1>Mô phỏng CURE — Bản thực hành độc lập</h1><div>HUIT · Thêm điểm, đổi tham số và quan sát phép gom</div></header>
+<main><aside><label for="dataset">Tập dữ liệu</label><select id="dataset"></select><label for="k">Số cụm k</label><input id="k" type="number" min="1" max="12" value="2"><label for="c">Số đại diện c</label><input id="c" type="number" min="1" max="12" value="4"><label for="alpha">Hệ số co α: <span id="alphaValue">0.4</span></label><input id="alpha" type="range" min="0" max="1" step="0.05" value="0.4"><label for="speed">Tốc độ</label><select id="speed"><option value="500">Chậm</option><option value="100" selected>Vừa</option><option value="20">Nhanh</option></select><label for="csv">Nạp CSV hai cột số</label><input id="csv" type="file" accept=".csv"><p class="note">CSV: X,Y hoặc Age,Spending_Score (Low/Average/High). Có thể chứa cột khác. Giới hạn 600 điểm; dữ liệu CSV được chuẩn hóa trước khi gom.</p><button id="export">Tải điểm và nhãn (JSON)</button></aside>
+<article><h2 style="font-size:18px;margin-top:0">Không gian dữ liệu</h2><canvas id="canvas" width="900" height="500" aria-label="Bấm để thêm điểm"></canvas><p class="note">● Điểm · × Đại diện đã co · ★ Trọng tâm. Bấm lên hình để thêm điểm; tọa độ được chuyển ngược về dữ liệu. Mỗi lần đổi tham số sẽ khởi tạo lại.</p><div class="row"><button id="next">Tiếp một bước →</button><button id="run" class="primary">▶ Tự động</button><button id="reset">↺ Khởi tạo lại</button><button id="reload">Nạp lại bộ gốc</button></div><div id="status" role="status"></div><div id="summary"></div><p class="note">Bộ mẫu cố định seed=42; dữ liệu tổng hợp và khách hàng chuẩn hóa từng thuộc tính. Ví dụ 6 điểm giữ tọa độ gốc. Bản này dùng vòng lặp duyệt cặp O(n³), bộ nhớ lưu điểm/đại diện O(n); không dùng thời gian trình duyệt để đối sánh Python. CURE ở đây không phát hiện hoặc loại ngoại lai tự động.</p></article></main>
+<script src="presets.js"></script><script src="cure_core.js"></script><script>
+const $=id=>document.getElementById(id),canvas=$('canvas'),ctx=canvas.getContext('2d');
+const colors=['#2563eb','#dc2626','#16a34a','#d97706','#9333ea','#0891b2'];
+let points=[],groups=[],timer=null,view;
+for(const name of Object.keys(CURE_PRESETS))$('dataset').add(new Option(name,name));
+$('dataset').add(new Option('Tự vẽ','custom'));
+function stop(){clearInterval(timer);timer=null;$('run').textContent='▶ Tự động';}
+function projection(){
+ const xs=points.map(p=>p[0]),ys=points.map(p=>p[1]);
+ const xmin=Math.min(-1,...xs),xmax=Math.max(1,...xs),ymin=Math.min(-1,...ys),ymax=Math.max(1,...ys);
+ view={cx:(xmin+xmax)/2,cy:(ymin+ymax)/2,s:Math.min(800/(xmax-xmin),400/(ymax-ymin))};
+}
+function screen(p){return [450+(p[0]-view.cx)*view.s,250-(p[1]-view.cy)*view.s];}
+function draw(){
+ ctx.clearRect(0,0,900,500);
+ groups.forEach((g,i)=>{
+  ctx.fillStyle=colors[i%colors.length];g.points.forEach(p=>{ctx.beginPath();ctx.arc(...screen(p),4,0,Math.PI*2);ctx.fill();});
+  if(g.points.length>1){ctx.strokeStyle='#991b1b';g.reps.forEach(r=>{const [x,y]=screen(r);ctx.beginPath();ctx.moveTo(x-4,y-4);ctx.lineTo(x+4,y+4);ctx.moveTo(x-4,y+4);ctx.lineTo(x+4,y-4);ctx.stroke();});ctx.fillStyle='#a16207';ctx.font='20px sans-serif';ctx.fillText('★',...screen(g.mean));}
+ });
+}
+function reset(){stop();groups=points.length?CureCore.initialize(points):[];projection();draw();$('summary').replaceChildren();$('status').textContent=`${points.length} điểm · ${groups.length} cụm. Bấm Tiếp hoặc thêm điểm.`;}
+function load(){const preset=CURE_PRESETS[$('dataset').value];points=preset?preset.points.map(p=>p.slice()):[];if(preset){$('k').value=preset.k;$('c').value=preset.c;$('alpha').value=preset.alpha;}$('alphaValue').textContent=$('alpha').value;reset();}
+function step(){
+ const k=Number($('k').value),c=Number($('c').value),alpha=Number($('alpha').value);
+ if(points.length<k){stop();$('status').textContent='Hãy thêm đủ điểm hoặc giảm k.';return;}
+ try{
+  const event=CureCore.step(groups,k,c,alpha);draw();
+  if(event)$('status').textContent=`Gom ${event.left+1} + ${event.right+1}, d=${event.distance.toFixed(4)} đơn vị dữ liệu; ${groups.length} cụm còn lại.`;
+  if(groups.length<=k){stop();$('status').textContent+=` Hoàn tất k=${k}.`;$('summary').replaceChildren();groups.forEach((g,i)=>{const p=document.createElement('p');p.textContent=`Cụm ${i+1}: ${g.points.length} điểm (${(100*g.points.length/points.length).toFixed(1)}%), ${g.reps.length} đại diện`;p.style.color=colors[i%colors.length];$('summary').appendChild(p);});}
+ }catch(e){stop();$('status').textContent=e.message;}
+}
+$('dataset').onchange=load;$('reload').onclick=load;$('reset').onclick=reset;
+for(const id of ['k','c','alpha'])$(id).onchange=()=>{$('alphaValue').textContent=$('alpha').value;reset();};
+$('next').onclick=()=>{stop();step();};
+$('run').onclick=()=>{if(timer)stop();else{timer=setInterval(step,Number($('speed').value));$('run').textContent='Ⅱ Tạm dừng';}};
+$('speed').onchange=()=>{if(timer){stop();$('run').click();}};
+canvas.onpointerdown=e=>{if(points.length>=600){$('status').textContent='Tối đa 600 điểm trong sandbox.';return;}const r=canvas.getBoundingClientRect();const x=(e.clientX-r.left)*900/r.width,y=(e.clientY-r.top)*500/r.height;points.push([view.cx+(x-450)/view.s,view.cy-(y-250)/view.s]);reset();};
+function parseCSV(text){
+ const rows=[];let row=[],cell='',quoted=false;
+ for(let i=0;i<text.length;i++){const c=text[i];if(c==='"'){if(quoted&&text[i+1]==='"'){cell+='"';i++;}else quoted=!quoted;}
+ else if(c===','&&!quoted){row.push(cell);cell='';}else if((c==='\n'||c==='\r')&&!quoted){if(c==='\r'&&text[i+1]==='\n')i++;row.push(cell);if(row.some(x=>x.trim()))rows.push(row);row=[];cell='';}else cell+=c;}
+ if(quoted)throw Error('CSV có dấu ngoặc kép chưa đóng.');row.push(cell);if(row.some(x=>x.trim()))rows.push(row);return rows;
+}
+$('csv').onchange=async e=>{try{
+ const file=e.target.files[0];if(!file)return;const rows=parseCSV((await file.text()).replace(/^\uFEFF/,''));
+ const header=rows.shift().map(x=>x.trim().toLowerCase());let xi=header.indexOf('x'),yi=header.indexOf('y'),customer=false;
+ if(xi<0||yi<0){xi=header.indexOf('age');yi=header.indexOf('spending_score');customer=true;}
+ if(xi<0||yi<0)throw Error('Cần cột X,Y hoặc Age,Spending_Score.');
+ if(rows.length<2||rows.length>600)throw Error('CSV cần từ 2 đến 600 dòng.');
+ const parsed=rows.map((row,i)=>{if(!row[xi]?.trim()||!row[yi]?.trim())throw Error(`Thiếu giá trị ở dòng ${i+2}.`);const x=Number(row[xi]),y=customer?({low:1,average:2,high:3}[row[yi].trim().toLowerCase()]):Number(row[yi]);if(!Number.isFinite(x)||!Number.isFinite(y))throw Error(`Giá trị không hợp lệ ở dòng ${i+2}.`);return [x,y];});
+ const means=[0,1].map(d=>parsed.reduce((s,p)=>s+p[d],0)/parsed.length),std=[0,1].map(d=>Math.sqrt(parsed.reduce((s,p)=>s+(p[d]-means[d])**2,0)/parsed.length)||1);
+ points=parsed.map(p=>p.map((v,d)=>(v-means[d])/std[d]));$('dataset').value='custom';reset();$('status').textContent+=' CSV đã chuẩn hóa.';
+ }catch(e){$('status').textContent=e.message;}};
+$('export').onclick=()=>{const labels=Array(points.length);groups.forEach((g,i)=>g.indices.forEach(j=>labels[j]=i));const blob=new Blob([JSON.stringify({points,labels,completed:groups.length===Number($('k').value),k:Number($('k').value),c:Number($('c').value),alpha:Number($('alpha').value)},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='cure_sandbox.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+load();
+</script></body></html>
