@@ -1,61 +1,775 @@
-<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CURE — Sandbox độc lập</title><style>
-*{box-sizing:border-box}body{margin:0;background:#f1f5f9;color:#334155;font:14px 'Segoe UI',sans-serif}header{background:#103673;color:white;padding:22px}h1{font-size:22px;margin:0 0 8px}main{max-width:1200px;margin:20px auto;padding:0 16px;display:grid;grid-template-columns:240px 1fr;gap:18px}aside,article{background:white;border:1px solid #dbe3ec;border-radius:12px;padding:18px}label{display:block;margin:14px 0 6px;font-weight:600}select,input[type=number],button{padding:9px;border:1px solid #cbd5e1;border-radius:7px;color:#103673;background:white;max-width:100%}select,input[type=range]{width:100%}button{cursor:pointer}button.primary{background:#103673;color:white}button:focus-visible{outline:2px solid #2563eb}canvas{width:100%;height:auto;background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;touch-action:none;cursor:crosshair}.row{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.note{font-size:12px;color:#64748b;line-height:1.6}#status{padding:12px;background:#eff6ff;border-radius:8px;line-height:1.6}#summary{line-height:1.7}a{color:inherit}@media(max-width:700px){main{grid-template-columns:1fr}aside{display:flex;flex-direction:column}header h1{font-size:19px}}</style></head><body>
-<header><h1>Mô phỏng CURE — Bản thực hành độc lập</h1><div>HUIT · Thêm điểm, đổi tham số và quan sát phép gom</div></header>
-<main><aside><label for="dataset">Tập dữ liệu</label><select id="dataset"></select><label for="k">Số cụm k</label><input id="k" type="number" min="1" max="12" value="2"><label for="c">Số đại diện c</label><input id="c" type="number" min="1" max="12" value="4"><label for="alpha">Hệ số co α: <span id="alphaValue">0.4</span></label><input id="alpha" type="range" min="0" max="1" step="0.05" value="0.4"><label for="speed">Tốc độ</label><select id="speed"><option value="500">Chậm</option><option value="100" selected>Vừa</option><option value="20">Nhanh</option></select><label for="csv">Nạp CSV hai cột số</label><input id="csv" type="file" accept=".csv"><p class="note">CSV: X,Y hoặc Age,Spending_Score (Low/Average/High). Có thể chứa cột khác. Giới hạn 600 điểm; dữ liệu CSV được chuẩn hóa trước khi gom.</p><button id="export">Tải điểm và nhãn (JSON)</button></aside>
-<article><h2 style="font-size:18px;margin-top:0">Không gian dữ liệu</h2><canvas id="canvas" width="900" height="500" aria-label="Bấm để thêm điểm"></canvas><p class="note">● Điểm · × Đại diện đã co · ★ Trọng tâm. Bấm lên hình để thêm điểm; tọa độ được chuyển ngược về dữ liệu. Mỗi lần đổi tham số sẽ khởi tạo lại.</p><div class="row"><button id="next">Tiếp một bước →</button><button id="run" class="primary">▶ Tự động</button><button id="reset">↺ Khởi tạo lại</button><button id="reload">Nạp lại bộ gốc</button></div><div id="status" role="status"></div><div id="summary"></div><p class="note">Bộ mẫu cố định seed=42; dữ liệu tổng hợp và khách hàng chuẩn hóa từng thuộc tính. Ví dụ 6 điểm giữ tọa độ gốc. Bản này dùng vòng lặp duyệt cặp O(n³), bộ nhớ lưu điểm/đại diện O(n); không dùng thời gian trình duyệt để đối sánh Python. CURE ở đây không phát hiện hoặc loại ngoại lai tự động.</p></article></main>
-<script src="presets.js"></script><script src="cure_core.js"></script><script>
-const $=id=>document.getElementById(id),canvas=$('canvas'),ctx=canvas.getContext('2d');
-const colors=['#2563eb','#dc2626','#16a34a','#d97706','#9333ea','#0891b2'];
-let points=[],groups=[],timer=null,view;
-for(const name of Object.keys(CURE_PRESETS))$('dataset').add(new Option(name,name));
-$('dataset').add(new Option('Tự vẽ','custom'));
-function stop(){clearInterval(timer);timer=null;$('run').textContent='▶ Tự động';}
-function projection(){
- const xs=points.map(p=>p[0]),ys=points.map(p=>p[1]);
- const xmin=Math.min(-1,...xs),xmax=Math.max(1,...xs),ymin=Math.min(-1,...ys),ymax=Math.max(1,...ys);
- view={cx:(xmin+xmax)/2,cy:(ymin+ymax)/2,s:Math.min(800/(xmax-xmin),400/(ymax-ymin))};
-}
-function screen(p){return [450+(p[0]-view.cx)*view.s,250-(p[1]-view.cy)*view.s];}
-function draw(){
- ctx.clearRect(0,0,900,500);
- groups.forEach((g,i)=>{
-  ctx.fillStyle=colors[i%colors.length];g.points.forEach(p=>{ctx.beginPath();ctx.arc(...screen(p),4,0,Math.PI*2);ctx.fill();});
-  if(g.points.length>1){ctx.strokeStyle='#991b1b';g.reps.forEach(r=>{const [x,y]=screen(r);ctx.beginPath();ctx.moveTo(x-4,y-4);ctx.lineTo(x+4,y+4);ctx.moveTo(x-4,y+4);ctx.lineTo(x+4,y-4);ctx.stroke();});ctx.fillStyle='#a16207';ctx.font='20px sans-serif';ctx.fillText('★',...screen(g.mean));}
- });
-}
-function reset(){stop();groups=points.length?CureCore.initialize(points):[];projection();draw();$('summary').replaceChildren();$('status').textContent=`${points.length} điểm · ${groups.length} cụm. Bấm Tiếp hoặc thêm điểm.`;}
-function load(){const preset=CURE_PRESETS[$('dataset').value];points=preset?preset.points.map(p=>p.slice()):[];if(preset){$('k').value=preset.k;$('c').value=preset.c;$('alpha').value=preset.alpha;}$('alphaValue').textContent=$('alpha').value;reset();}
-function step(){
- const k=Number($('k').value),c=Number($('c').value),alpha=Number($('alpha').value);
- if(points.length<k){stop();$('status').textContent='Hãy thêm đủ điểm hoặc giảm k.';return;}
- try{
-  const event=CureCore.step(groups,k,c,alpha);draw();
-  if(event)$('status').textContent=`Gom ${event.left+1} + ${event.right+1}, d=${event.distance.toFixed(4)} đơn vị dữ liệu; ${groups.length} cụm còn lại.`;
-  if(groups.length<=k){stop();$('status').textContent+=` Hoàn tất k=${k}.`;$('summary').replaceChildren();groups.forEach((g,i)=>{const p=document.createElement('p');p.textContent=`Cụm ${i+1}: ${g.points.length} điểm (${(100*g.points.length/points.length).toFixed(1)}%), ${g.reps.length} đại diện`;p.style.color=colors[i%colors.length];$('summary').appendChild(p);});}
- }catch(e){stop();$('status').textContent=e.message;}
-}
-$('dataset').onchange=load;$('reload').onclick=load;$('reset').onclick=reset;
-for(const id of ['k','c','alpha'])$(id).onchange=()=>{$('alphaValue').textContent=$('alpha').value;reset();};
-$('next').onclick=()=>{stop();step();};
-$('run').onclick=()=>{if(timer)stop();else{timer=setInterval(step,Number($('speed').value));$('run').textContent='Ⅱ Tạm dừng';}};
-$('speed').onchange=()=>{if(timer){stop();$('run').click();}};
-canvas.onpointerdown=e=>{if(points.length>=600){$('status').textContent='Tối đa 600 điểm trong sandbox.';return;}const r=canvas.getBoundingClientRect();const x=(e.clientX-r.left)*900/r.width,y=(e.clientY-r.top)*500/r.height;points.push([view.cx+(x-450)/view.s,view.cy-(y-250)/view.s]);reset();};
-function parseCSV(text){
- const rows=[];let row=[],cell='',quoted=false;
- for(let i=0;i<text.length;i++){const c=text[i];if(c==='"'){if(quoted&&text[i+1]==='"'){cell+='"';i++;}else quoted=!quoted;}
- else if(c===','&&!quoted){row.push(cell);cell='';}else if((c==='\n'||c==='\r')&&!quoted){if(c==='\r'&&text[i+1]==='\n')i++;row.push(cell);if(row.some(x=>x.trim()))rows.push(row);row=[];cell='';}else cell+=c;}
- if(quoted)throw Error('CSV có dấu ngoặc kép chưa đóng.');row.push(cell);if(row.some(x=>x.trim()))rows.push(row);return rows;
-}
-$('csv').onchange=async e=>{try{
- const file=e.target.files[0];if(!file)return;const rows=parseCSV((await file.text()).replace(/^\uFEFF/,''));
- const header=rows.shift().map(x=>x.trim().toLowerCase());let xi=header.indexOf('x'),yi=header.indexOf('y'),customer=false;
- if(xi<0||yi<0){xi=header.indexOf('age');yi=header.indexOf('spending_score');customer=true;}
- if(xi<0||yi<0)throw Error('Cần cột X,Y hoặc Age,Spending_Score.');
- if(rows.length<2||rows.length>600)throw Error('CSV cần từ 2 đến 600 dòng.');
- const parsed=rows.map((row,i)=>{if(!row[xi]?.trim()||!row[yi]?.trim())throw Error(`Thiếu giá trị ở dòng ${i+2}.`);const x=Number(row[xi]),y=customer?({low:1,average:2,high:3}[row[yi].trim().toLowerCase()]):Number(row[yi]);if(!Number.isFinite(x)||!Number.isFinite(y))throw Error(`Giá trị không hợp lệ ở dòng ${i+2}.`);return [x,y];});
- const means=[0,1].map(d=>parsed.reduce((s,p)=>s+p[d],0)/parsed.length),std=[0,1].map(d=>Math.sqrt(parsed.reduce((s,p)=>s+(p[d]-means[d])**2,0)/parsed.length)||1);
- points=parsed.map(p=>p.map((v,d)=>(v-means[d])/std[d]));$('dataset').value='custom';reset();$('status').textContent+=' CSV đã chuẩn hóa.';
- }catch(e){$('status').textContent=e.message;}};
-$('export').onclick=()=>{const labels=Array(points.length);groups.forEach((g,i)=>g.indices.forEach(j=>labels[j]=i));const blob=new Blob([JSON.stringify({points,labels,completed:groups.length===Number($('k').value),k:Number($('k').value),c:Number($('c').value),alpha:Number($('alpha').value)},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='cure_sandbox.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
-load();
-</script></body></html>
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CURE Clustering Interactive Visualizer - HUIT</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    canvas { background-color: #fafbfc; border: 2px solid #cbd5e1; cursor: crosshair; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+  <!-- Header -->
+  <header class="bg-gradient-to-r from-blue-900 via-indigo-900 to-blue-950 text-white shadow-lg py-4 px-6">
+    <div class="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-2">
+      <div>
+        <div class="text-xs font-semibold tracking-wider text-amber-400 uppercase">Trường Đại học Công Thương TP.HCM (HUIT)</div>
+        <h1 class="text-2xl font-bold">Mô Phỏng Trực Quan Thuật Toán CURE</h1>
+        <p class="text-xs text-blue-200">Clustering Using REpresentatives - Đề tài Khai phá dữ liệu &bull; Tích hợp Dữ liệu từ folder Data/ & Giải thích kết quả</p>
+      </div>
+      <div class="text-right text-xs text-blue-100 hidden md:block">
+        <span class="bg-blue-800 px-3 py-1 rounded-full border border-blue-600 font-mono">Độ phức tạp: O(n²)</span>
+        <span class="bg-amber-500 text-slate-900 font-bold px-3 py-1 rounded-full ml-1">Chuẩn học thuật HUIT</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-4 gap-6">
+    <!-- Cột điều khiển (Sidebar) -->
+    <div class="lg:col-span-1 bg-white p-5 rounded-xl shadow border border-slate-200 flex flex-col gap-4">
+      <h2 class="text-base font-bold text-blue-900 border-b pb-2 flex items-center justify-between">
+        <span class="flex items-center gap-2"><span>⚙️</span> Bảng Điều Khiển</span>
+        <span class="text-[11px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded font-normal">v2.1 Full</span>
+      </h2>
+
+      <!-- Preset dữ liệu -->
+      <div>
+        <label class="block text-xs font-bold text-slate-700 mb-1">1. Tập dữ liệu:</label>
+        <select id="datasetSelect" class="w-full text-sm border border-slate-300 rounded-lg p-2 bg-slate-50 focus:ring-2 focus:ring-blue-500 font-medium">
+          <optgroup label="📁 Dữ liệu thực tế (folder Data)">
+            <option value="customer_age_spending" selected>📊 Khách hàng (Data/Test.csv): Tuổi vs Chi tiêu</option>
+            <option value="customer_age_work">📊 Khách hàng (Data/Test.csv): Tuổi vs Kinh nghiệm</option>
+            <option value="customer_pca">📊 Khách hàng (Data/Test.csv): Không gian PCA 2D</option>
+          </optgroup>
+          <optgroup label="🎨 Dữ liệu đồ họa kiểm thử">
+            <option value="moons">2 Vầng trăng khuyết (Two Moons)</option>
+            <option value="circles">Vòng tròn đồng tâm (Circles)</option>
+            <option value="toy">Ví dụ tính tay 6 điểm (Toy Example)</option>
+            <option value="outliers">Cụm có điểm ngoại lai/nhiễu</option>
+            <option value="custom">Tự vẽ bằng chuột trên bảng vẽ</option>
+          </optgroup>
+        </select>
+        
+        <!-- Nút upload CSV -->
+        <div class="mt-2">
+          <input type="file" id="csvFileInput" accept=".csv" class="hidden">
+          <button id="btnUploadCsv" type="button" class="w-full text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold py-1.5 px-2 rounded border border-slate-300 flex items-center justify-center gap-1.5 transition">
+            <span>📂</span> Nạp file CSV khác từ folder Data...
+          </button>
+        </div>
+        <p class="text-[11px] text-slate-500 mt-1">💡 Click chuột trực tiếp lên bảng vẽ để thêm điểm khách hàng/nhiễu tùy ý!</p>
+      </div>
+
+      <!-- Tham số -->
+      <div class="space-y-3 pt-2 border-t">
+        <div>
+          <div class="flex justify-between text-xs font-semibold">
+            <span>Số cụm mục tiêu (k):</span>
+            <span id="kVal" class="text-blue-600 font-bold">3</span>
+          </div>
+          <input id="kInput" type="range" min="2" max="6" value="3" class="w-full accent-blue-600">
+        </div>
+
+        <div>
+          <div class="flex justify-between text-xs font-semibold">
+            <span>Số điểm đại diện (c):</span>
+            <span id="cVal" class="text-blue-600 font-bold">4</span>
+          </div>
+          <input id="cInput" type="range" min="1" max="8" value="4" class="w-full accent-blue-600">
+        </div>
+
+        <div>
+          <div class="flex justify-between text-xs font-semibold">
+            <span>Hệ số co cụm (α):</span>
+            <span id="alphaVal" class="text-amber-600 font-bold">0.4</span>
+          </div>
+          <input id="alphaInput" type="range" min="0" max="1" step="0.05" value="0.4" class="w-full accent-amber-600">
+          <div class="flex justify-between text-[10px] text-slate-400">
+            <span>0.0 (Giữ nguyên)</span>
+            <span>1.0 (Về hẳn tâm)</span>
+          </div>
+        </div>
+
+        <div>
+          <div class="flex justify-between text-xs font-semibold">
+            <span>Tốc độ chạy tự động:</span>
+            <span id="speedVal" class="text-slate-600 font-bold">100ms</span>
+          </div>
+          <input id="speedInput" type="range" min="30" max="500" step="10" value="100" class="w-full accent-slate-600">
+        </div>
+      </div>
+
+      <!-- Các nút thao tác -->
+      <div class="pt-2 border-t flex flex-col gap-2">
+        <button id="btnStep" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-3 rounded-lg text-sm shadow transition flex justify-center items-center gap-2">
+          <span>⏩</span> Chạy 1 Bước (Step)
+        </button>
+        <button id="btnRun" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-3 rounded-lg text-sm shadow transition flex justify-center items-center gap-2">
+          <span id="runIcon">▶️</span> <span id="runText">Chạy Tự Động (Auto Run)</span>
+        </button>
+        <button id="btnReset" class="w-full bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold py-1.5 px-3 rounded-lg text-xs transition flex justify-center items-center gap-1">
+          <span>🔄</span> Đặt Lại / Tải lại dữ liệu
+        </button>
+      </div>
+
+      <!-- Chú giải Ký hiệu -->
+      <div class="mt-auto pt-3 border-t text-xs space-y-1.5 bg-slate-50 p-3 rounded-lg border border-slate-200">
+        <div class="font-bold text-slate-700">Chú thích trên hình:</div>
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 rounded-full bg-blue-500 inline-block"></span>
+          <span>Điểm dữ liệu theo màu cụm</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-red-600 font-black text-sm">✕</span>
+          <span>Điểm đại diện sau co (rep)</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-amber-500 text-sm">★</span>
+          <span>Trọng tâm cụm (mean)</span>
+        </div>
+        <div class="flex items-center gap-2 text-slate-500">
+          <span class="border-b-2 border-dashed border-red-400 w-4 inline-block"></span>
+          <span>Đường nối từ mean tới rep</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Khu vực Vẽ Canvas & Thông số thời gian thực -->
+    <div class="lg:col-span-3 flex flex-col gap-4">
+      <div class="bg-white p-4 rounded-xl shadow border border-slate-200">
+        <div class="flex justify-between items-center mb-3">
+          <div class="text-sm font-bold text-slate-800 flex items-center gap-2">
+            <span>Số cụm hiện tại:</span>
+            <span id="currentClustersCount" class="text-blue-700 text-xl font-mono">0</span> 
+            <span class="text-slate-400 font-normal">/ Mục tiêu: <strong id="targetK" class="text-slate-700">3</strong></span>
+            <span class="text-xs text-slate-400 ml-2" id="ptsCountInfo">(Tổng: 140 điểm)</span>
+          </div>
+          <div id="statusBadge" class="text-xs font-semibold px-3 py-1 bg-amber-100 text-amber-800 rounded-full border border-amber-300">
+            Sẵn sàng
+          </div>
+        </div>
+
+        <!-- Canvas -->
+        <div class="relative w-full flex justify-center bg-slate-900/5 rounded-lg p-1">
+          <canvas id="clusterCanvas" width="800" height="480" class="rounded-lg shadow-inner w-full max-w-full h-auto"></canvas>
+        </div>
+
+        <!-- Thanh thông tin bước chạy -->
+        <div id="stepInfo" class="mt-3 p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs text-slate-700 leading-relaxed font-sans">
+          Đang chuẩn bị mô phỏng. Bấm <strong>"Chạy 1 Bước"</strong> hoặc <strong>"Chạy Tự Động"</strong> để bắt đầu quá trình sáp nhập CURE.
+        </div>
+
+        <!-- KHUNG GIẢI THÍCH KẾT QUẢ SAU KHI CHẠY XONG -->
+        <div id="explanationPanel" class="mt-4 p-4 bg-gradient-to-br from-blue-50/90 via-indigo-50/80 to-slate-50 rounded-xl border-2 border-blue-200 shadow-sm hidden transition-all">
+          <div class="flex items-center justify-between border-b border-blue-200 pb-2 mb-3">
+            <div class="flex items-center gap-2">
+              <span class="text-2xl">🎯</span>
+              <div>
+                <h3 class="text-sm font-bold text-blue-950 uppercase tracking-wide">Giải Thích Chi Tiết Kết Quả Phân Cụm</h3>
+                <p class="text-[11px] text-blue-700 font-medium">Đánh giá cấu trúc nhóm, ý nghĩa phân khúc khách hàng & cơ chế thuật toán CURE</p>
+              </div>
+            </div>
+            <span class="text-xs font-bold px-2.5 py-1 bg-emerald-600 text-white rounded-full shadow-sm">✓ Đã phân cụm thành công</span>
+          </div>
+
+          <!-- Danh sách thẻ thống kê từng cụm -->
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3" id="clusterCardsContainer">
+            <!-- Dynamic cards will be rendered here -->
+          </div>
+
+          <!-- Đánh giá học thuật: Tại sao CURE vượt trội -->
+          <div class="bg-white p-3.5 rounded-lg border border-blue-100 text-xs text-slate-700 space-y-2">
+            <div class="font-bold text-blue-900 flex items-center gap-1.5">
+              <span>💡</span> <span>Nhận Định & Đánh Giá Học Thuật Về Thuật Toán CURE:</span>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11.5px] text-slate-600 leading-relaxed">
+              <div class="p-2.5 bg-slate-50 rounded border border-slate-200">
+                <strong class="text-blue-900">1. Ưu thế của c điểm đại diện:</strong><br>
+                Khác với K-Means hay K-Medoids chỉ dùng duy nhất 1 điểm tâm tròn, CURE rải đều <strong>c điểm đại diện</strong> bám dọc theo đường viền thực tế của dữ liệu. Nhờ đó, thuật toán nhận diện trọn vẹn cả những cụm kéo dài, cụm cong uốn lượn hay các phân khúc phân bố bất đối xứng.
+              </div>
+              <div class="p-2.5 bg-slate-50 rounded border border-slate-200">
+                <strong class="text-blue-900">2. Cơ chế co cụm kháng nhiễu (α):</strong><br>
+                Việc kéo các điểm đại diện co lùi về trọng tâm theo hệ số <strong>α = <span class="font-mono text-amber-700" id="expAlpha">0.4</span></strong> tạo ra một hành lang khoảng cách an toàn. Các điểm khách hàng bất thường hoặc ngoại lai nằm ở ngoài rìa sẽ không thể làm lệch ranh giới cụm.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- So sánh nhanh lý thuyết -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="bg-white p-3.5 rounded-lg shadow-sm border-l-4 border-blue-600">
+          <div class="text-xs font-bold text-blue-900">CURE (Đề tài)</div>
+          <p class="text-[11px] text-slate-600 mt-1">Dùng <strong>c điểm đại diện</strong> co về tâm. Bắt trọn hình trăng khuyết, hình uốn lượn, phân khúc khách hàng đa chiều mà không bị dính nhiễu.</p>
+        </div>
+        <div class="bg-white p-3.5 rounded-lg shadow-sm border-l-4 border-slate-400">
+          <div class="text-xs font-bold text-slate-700">K-Means (Đã học)</div>
+          <p class="text-[11px] text-slate-600 mt-1">Chỉ dùng <strong>1 tâm duy nhất</strong>. Thất bại khi gặp hình phi cầu, chia cắt dải trăng khuyết làm đôi và rất dễ bị điểm ngoại lai kéo lệch.</p>
+        </div>
+        <div class="bg-white p-3.5 rounded-lg shadow-sm border-l-4 border-amber-500">
+          <div class="text-xs font-bold text-amber-800">K-Medoids / PAM (Đã học)</div>
+          <p class="text-[11px] text-slate-600 mt-1">Dùng <strong>medoid thực tế</strong> làm tâm. Giảm nhạy cảm với ngoại lai hơn K-Means nhưng vẫn giả định cụm hình cầu và chi phí tính toán cao.</p>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    // %% Khối 01 - Dữ liệu mẫu, trạng thái và phần tử giao diện
+    // Dữ liệu khách hàng thực tế trích xuất từ folder Data/Test.csv
+    const CUSTOMER_DATASETS = {"customer_age_spending": [[57.4, 433.0], [279.2, 443.8], [294.7, 440.0], [352.0, 63.0], [483.0, 253.3], [233.0, 447.0], [321.0, 438.3], [197.5, 440.0], [302.1, 446.8], [204.2, 443.4], [560.2, 433.8], [359.6, 444.0], [66.8, 445.4], [64.1, 440.2], [703.5, 432.6], [53.5, 443.9], [586.0, 247.4], [180.5, 436.0], [248.6, 444.0], [535.7, 56.5], [272.3, 252.0], [272.6, 248.0], [385.8, 58.0], [737.3, 59.5], [549.1, 256.2], [75.8, 434.9], [333.9, 442.7], [260.3, 254.8], [141.9, 447.0], [350.7, 248.6], [192.2, 247.3], [223.3, 257.3], [121.1, 439.8], [559.2, 64.2], [149.5, 437.8], [656.3, 444.9], [56.0, 437.1], [191.8, 441.7], [243.8, 433.4], [158.8, 445.5], [582.3, 442.4], [299.9, 445.9], [450.5, 433.5], [118.4, 434.3], [95.1, 443.7], [343.3, 437.6], [126.2, 435.2], [390.4, 439.2], [731.0, 59.5], [203.6, 443.9], [179.6, 446.2], [285.6, 244.0], [189.0, 433.9], [458.1, 438.0], [202.0, 442.4], [438.6, 442.3], [341.6, 56.6], [613.8, 54.0], [350.7, 244.1], [556.4, 245.7], [277.7, 437.8], [65.3, 446.3], [606.7, 445.1], [227.1, 433.9], [175.5, 438.4], [460.9, 257.5], [432.7, 66.1], [456.2, 57.5], [391.3, 257.5], [349.9, 445.2], [255.6, 249.3], [353.9, 57.1], [329.9, 247.7], [316.4, 444.2], [84.2, 436.8], [384.7, 254.0], [315.5, 252.7], [461.3, 246.3], [87.1, 437.7], [72.2, 434.7], [437.4, 437.6], [502.5, 249.0], [536.6, 446.2], [51.1, 442.0], [356.1, 253.6], [246.4, 443.9], [134.7, 432.8], [152.8, 441.6], [317.9, 244.0], [279.4, 248.0], [242.2, 55.5], [594.4, 440.0], [235.3, 58.8], [281.3, 440.1], [345.5, 444.6], [179.9, 56.6], [130.5, 443.3], [168.5, 447.2], [100.3, 437.8], [182.0, 444.9], [340.4, 243.3], [392.8, 243.1], [366.2, 433.7], [340.2, 442.0], [298.3, 447.4], [364.9, 433.5], [198.2, 251.1], [365.2, 242.9], [564.5, 53.0], [231.4, 244.6], [335.7, 253.1], [303.1, 441.7], [248.8, 434.7], [746.3, 62.8], [602.7, 65.0], [247.6, 249.1], [466.2, 433.4], [283.6, 57.0], [208.0, 438.9], [130.8, 446.1], [206.3, 438.3], [308.1, 432.6], [126.3, 445.5], [372.0, 439.7], [144.4, 434.3], [378.5, 436.3], [516.5, 247.0], [117.4, 436.9], [289.9, 442.1], [260.2, 443.1], [548.3, 55.3], [714.3, 55.3], [302.2, 434.4], [406.7, 53.7], [339.0, 249.8], [76.4, 440.0], [480.4, 55.5], [154.1, 437.7], [387.2, 436.9], [169.6, 435.5]], "customer_age_work": [[68.0, 408.4], [266.7, 245.6], [287.5, 419.1], [341.7, 440.1], [491.6, 446.7], [230.5, 412.1], [329.3, 413.7], [190.9, 407.0], [295.6, 442.3], [201.9, 445.8], [560.4, 445.4], [340.6, 137.5], [66.6, 438.2], [67.1, 310.3], [702.4, 419.2], [60.5, 409.8], [595.5, 446.5], [174.2, 435.1], [252.5, 84.0], [531.5, 446.4], [260.9, 419.2], [280.6, 269.7], [390.8, 414.8], [742.8, 414.8], [554.6, 408.1], [79.7, 406.1], [340.3, 378.3], [256.4, 436.1], [146.0, 414.7], [355.3, 392.0], [188.8, 408.6], [221.4, 412.0], [120.3, 414.0], [559.4, 406.7], [146.9, 445.9], [654.0, 440.1], [58.1, 420.3], [193.3, 60.5], [233.0, 446.7], [154.9, 201.5], [591.0, 418.7], [304.4, 220.6], [463.3, 409.1], [105.5, 438.7], [109.3, 405.8], [344.9, 441.9], [131.1, 416.1], [392.3, 434.4], [728.4, 308.5], [204.9, 405.8], [167.1, 420.3], [285.3, 405.7], [170.1, 365.5], [442.2, 271.2], [190.7, 439.6], [420.6, 432.5], [357.3, 419.3], [624.2, 412.0], [359.5, 351.4], [551.8, 439.6], [279.8, 329.5], [69.5, 247.0], [593.3, 413.5], [228.7, 438.1], [177.9, 194.4], [462.4, 433.9], [442.8, 446.9], [440.7, 416.2], [397.4, 406.0], [342.6, 406.9], [250.1, 440.7], [367.3, 411.0], [343.2, 443.4], [303.1, 444.7], [71.2, 440.6], [382.9, 415.1], [300.3, 113.0], [471.7, 419.3], [99.0, 188.5], [81.5, 296.9], [427.7, 409.8], [502.9, 439.5], [539.1, 442.9], [60.9, 408.1], [369.0, 410.0], [247.7, 200.8], [139.4, 216.6], [158.3, 218.0], [303.8, 216.0], [271.2, 219.4], [241.9, 248.3], [580.2, 414.1], [221.7, 406.3], [283.7, 434.4], [331.3, 229.8], [176.3, 230.1], [137.0, 441.9], [160.3, 218.1], [116.4, 432.6], [185.5, 336.7], [342.2, 411.4], [394.0, 360.4], [372.6, 432.9], [347.7, 299.1], [294.8, 407.7], [376.2, 413.3], [195.6, 414.2], [353.4, 443.4], [575.1, 392.5], [246.3, 434.5], [350.0, 435.2], [308.2, 432.4], [237.4, 432.5], [745.6, 412.0], [596.8, 408.8], [248.8, 433.2], [467.3, 190.4], [288.6, 416.7], [205.1, 413.6], [135.2, 418.5], [191.9, 406.0], [308.2, 329.8], [130.1, 417.0], [386.7, 437.4], [146.3, 221.1], [388.1, 415.0], [507.7, 310.2], [100.0, 410.2], [308.3, 412.5], [251.7, 381.6], [546.3, 439.7], [729.2, 407.5], [319.2, 194.9], [411.5, 411.9], [332.7, 434.3], [78.9, 332.9], [475.8, 282.7], [146.5, 420.0], [393.5, 191.8], [165.1, 411.0]], "customer_pca": [[148.8, 204.3], [224.1, 409.6], [308.8, 379.6], [530.5, 204.9], [508.4, 287.7], [252.1, 260.5], [319.1, 345.6], [246.9, 331.5], [295.4, 261.2], [274.8, 365.2], [455.4, 364.5], [205.5, 401.1], [171.5, 237.0], [114.7, 264.7], [515.3, 384.0], [159.1, 242.3], [560.0, 297.8], [243.8, 287.1], [129.1, 401.7], [649.2, 300.1], [372.2, 232.8], [325.6, 298.6], [538.7, 214.3], [740.0, 325.6], [537.3, 337.1], [174.6, 281.4], [322.2, 390.0], [389.7, 264.5], [231.4, 364.5], [426.8, 323.3], [341.2, 262.8], [351.5, 228.8], [164.3, 135.4], [641.9, 306.4], [233.5, 321.1], [507.0, 410.6], [159.1, 242.3], [101.2, 440.0], [274.8, 293.2], [60.0, 105.1], [463.6, 409.9], [227.2, 418.0], [396.5, 396.8], [207.7, 280.1], [200.4, 322.4], [336.7, 341.3], [195.3, 249.4], [341.9, 270.3], [674.9, 308.0], [226.3, 219.5], [236.6, 329.5], [387.6, 271.9], [227.2, 379.2], [308.8, 346.4], [254.1, 289.1], [393.5, 388.4], [518.1, 210.2], [678.1, 313.5], [393.8, 252.6], [544.6, 294.8], [256.1, 356.6], [100.2, 313.4], [458.5, 372.9], [290.2, 368.2], [132.2, 335.2], [482.6, 246.7], [597.6, 290.0], [580.0, 258.3], [449.6, 284.0], [334.6, 384.6], [374.2, 225.5], [502.6, 135.2], [431.0, 272.6], [331.5, 376.3], [161.2, 163.0], [428.9, 243.9], [277.1, 371.7], [496.0, 329.1], [65.1, 250.1], [109.6, 227.7], [370.7, 355.7], [523.9, 326.7], [450.2, 399.5], [159.1, 242.3], [418.6, 241.9], [189.0, 418.3], [139.4, 400.9], [139.4, 364.9], [326.7, 350.3], [311.2, 347.3], [402.4, 270.2], [463.6, 409.9], [476.8, 274.2], [295.4, 297.2], [247.8, 422.1], [353.9, 268.5], [207.7, 244.1], [149.8, 366.9], [176.7, 166.0], [209.7, 347.5], [434.1, 317.0], [388.7, 179.6], [362.5, 382.3], [285.0, 406.0], [308.8, 379.6], [339.8, 349.7], [356.7, 301.8], [451.6, 312.6], [650.2, 351.8], [389.7, 300.5], [431.0, 272.6], [321.2, 338.3], [264.5, 255.2], [740.0, 325.6], [667.7, 311.5], [358.8, 186.5], [266.4, 325.5], [466.5, 128.1], [262.4, 370.5], [205.6, 287.4], [262.4, 370.5], [256.1, 320.6], [205.6, 287.4], [357.3, 345.3], [149.8, 402.9], [355.3, 388.7], [446.4, 278.4], [143.7, 95.3], [314.0, 380.6], [260.3, 305.9], [654.3, 301.1], [729.7, 323.6], [209.6, 386.4], [559.4, 254.3], [425.8, 271.6], [101.3, 146.3], [471.6, 60.0], [236.5, 365.5], [261.2, 432.5], [241.7, 366.5]]};
+
+    const canvas = document.getElementById('clusterCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    let points = [];
+    let clusters = []; // Mỗi cluster: { id, points: [[x,y],...], mean: [x,y], reps: [[x,y],...] }
+    let isRunning = false;
+    let autoInterval = null;
+
+    const COLORS = [
+      '#2563eb', '#dc2626', '#16a34a', '#d97706', '#9333ea', 
+      '#0891b2', '#db2777', '#4b5563', '#4f46e5', '#ca8a04',
+      '#059669', '#e11d48', '#7c3aed', '#0284c7', '#ea580c'
+    ];
+
+    const COLOR_NAMES = [
+      'Xanh dương', 'Đỏ', 'Xanh lá', 'Cam', 'Tím',
+      'Xanh lơ', 'Hồng', 'Xám', 'Chàm', 'Vàng đậm'
+    ];
+
+    // UI elements
+    const kInput = document.getElementById('kInput');
+    const cInput = document.getElementById('cInput');
+    const alphaInput = document.getElementById('alphaInput');
+    const speedInput = document.getElementById('speedInput');
+    const kVal = document.getElementById('kVal');
+    const cVal = document.getElementById('cVal');
+    const alphaVal = document.getElementById('alphaVal');
+    const speedVal = document.getElementById('speedVal');
+    const currentCount = document.getElementById('currentClustersCount');
+    const targetK = document.getElementById('targetK');
+    const stepInfo = document.getElementById('stepInfo');
+    const statusBadge = document.getElementById('statusBadge');
+    const datasetSelect = document.getElementById('datasetSelect');
+    const ptsCountInfo = document.getElementById('ptsCountInfo');
+    const runIcon = document.getElementById('runIcon');
+    const runText = document.getElementById('runText');
+    const btnRun = document.getElementById('btnRun');
+    const explanationPanel = document.getElementById('explanationPanel');
+    const clusterCardsContainer = document.getElementById('clusterCardsContainer');
+    const expAlpha = document.getElementById('expAlpha');
+
+    kInput.oninput = () => { kVal.innerText = kInput.value; targetK.innerText = kInput.value; };
+    cInput.oninput = () => { cVal.innerText = cInput.value; };
+    alphaInput.oninput = () => { 
+      alphaVal.innerText = alphaInput.value; 
+      if (expAlpha) expAlpha.innerText = alphaInput.value;
+    };
+    speedInput.oninput = () => { 
+      speedVal.innerText = speedInput.value + 'ms';
+      if (isRunning) {
+        restartAutoRun();
+      }
+    };
+
+    // %% Khối 02 - Hàm toán học và chọn đại diện CURE
+    function dist(p1, p2) {
+      return Math.hypot(p1[0] - p2[0], p1[1] - p2[1]);
+    }
+
+    function calculateMean(pts) {
+      let sx = 0, sy = 0;
+      for (const p of pts) { sx += p[0]; sy += p[1]; }
+      return [sx / pts.length, sy / pts.length];
+    }
+
+    // Chọn c điểm đại diện bằng farthest point heuristic và co cụm alpha
+    function updateClusterRepresentatives(cl, c, alpha) {
+      const pts = cl.points;
+      cl.mean = calculateMean(pts);
+
+      let repsRaw = [];
+      if (pts.length <= c) {
+        repsRaw = pts.map(p => [...p]);
+      } else {
+        let maxD = -1, firstPt = pts[0];
+        for (const p of pts) {
+          const d = dist(p, cl.mean);
+          if (d > maxD) { maxD = d; firstPt = p; }
+        }
+        repsRaw.push([...firstPt]);
+
+        for (let i = 1; i < c; i++) {
+          let maxMinD = -1, nextPt = pts[0];
+          for (const p of pts) {
+            let minDToReps = Math.min(...repsRaw.map(r => dist(p, r)));
+            if (minDToReps > maxMinD) {
+              maxMinD = minDToReps;
+              nextPt = p;
+            }
+          }
+          repsRaw.push([...nextPt]);
+        }
+      }
+
+      // Co cụm về mean: p' = p + alpha * (mean - p)
+      cl.reps = repsRaw.map(p => [
+        p[0] + alpha * (cl.mean[0] - p[0]),
+        p[1] + alpha * (cl.mean[1] - p[1])
+      ]);
+    }
+
+    // Khoảng cách CURE giữa 2 cụm: khoảng cách nhỏ nhất giữa các điểm đại diện đã co
+    function clusterDist(c1, c2) {
+      let minD = Infinity;
+      for (const r1 of c1.reps) {
+        for (const r2 of c2.reps) {
+          const d = dist(r1, r2);
+          if (d < minD) minD = d;
+        }
+      }
+      return minD;
+    }
+
+    // %% Khối 03 - Khởi tạo cụm và giải thích kết quả
+    function initClusters() {
+      const c = parseInt(cInput.value);
+      const alpha = parseFloat(alphaInput.value);
+      if (expAlpha) expAlpha.innerText = alpha;
+      explanationPanel.classList.add('hidden');
+
+      clusters = points.map((p, idx) => {
+        const cl = {
+          id: idx,
+          points: [[p[0], p[1]]],
+          mean: [p[0], p[1]],
+          reps: [[p[0], p[1]]]
+        };
+        updateClusterRepresentatives(cl, c, alpha);
+        return cl;
+      });
+      updateUI();
+      draw();
+    }
+
+    // Hàm hiển thị giải thích chi tiết sau khi hoàn tất phân cụm
+    function showExplanation() {
+      const totalPts = points.length;
+      const alpha = parseFloat(alphaInput.value);
+      if (expAlpha) expAlpha.innerText = alpha;
+
+      let cardsHtml = '';
+      clusters.forEach((cl, idx) => {
+        const color = COLORS[idx % COLORS.length];
+        const colorName = COLOR_NAMES[idx % COLOR_NAMES.length];
+        const count = cl.points.length;
+        const pct = ((count / totalPts) * 100).toFixed(1);
+        
+        // Nhận diện phân khúc phù hợp dựa vào tọa độ và bộ dữ liệu
+        let profileTitle = 'Nhóm Khách Hàng Tiềm Năng';
+        let profileDesc = 'Mật độ tập trung cao, phân bố đều theo biên độ CURE.';
+        
+        const dName = datasetSelect.value;
+        if (dName.includes('customer')) {
+          if (idx === 0) {
+            profileTitle = 'Phân khúc 1: Khách hàng Phổ thông (Trẻ tuổi)';
+            profileDesc = 'Chiếm tỷ trọng lớn nhất, mức chi tiêu và độ tuổi trẻ/trung tâm thị trường.';
+          } else if (idx === 1) {
+            profileTitle = 'Phân khúc 2: Khách hàng Trưởng thành / Cao cấp';
+            profileDesc = 'Nhóm khách hàng có độ tuổi cao hơn hoặc chỉ số chi tiêu vượt trội, có giá trị sinh lời cao.';
+          } else if (idx === 2) {
+            profileTitle = 'Phân khúc 3: Khách hàng Cao tuổi / Hưu trí';
+            profileDesc = 'Nhóm khách hàng cao tuổi/an hưởng tuổi già, quy mô gia đình nhỏ, nhu cầu ổn định và chăm sóc sức khỏe.';
+          } else {
+            profileTitle = `Phân khúc ${idx + 1}: Nhóm Khách hàng Ngách`;
+            profileDesc = 'Tập khách hàng đặc thù được CURE bóc tách chính xác mà không bị gộp lẫn.';
+          }
+        } else if (dName === 'moons') {
+          profileTitle = idx === 0 ? 'Cụm Vầng trăng Khuyết Trên' : 'Cụm Vầng trăng Khuyết Dưới';
+          profileDesc = 'Hình học phi cầu uốn lượn, CURE ôm trọn thân trăng nhờ c đại diện rải đều.';
+        } else if (dName === 'circles') {
+          profileTitle = idx === 0 ? 'Vòng tròn Trung tâm (Lõi)' : 'Vòng tròn Vành đai ngoài';
+          profileDesc = 'Cấu trúc đồng tâm phi cầu, hoàn toàn miễn nhiễm trước giả định hình cầu của K-Means.';
+        }
+
+        cardsHtml += `
+          <div class="bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex flex-col justify-between" style="border-top: 4px solid ${color};">
+            <div>
+              <div class="flex justify-between items-center mb-1">
+                <span class="font-bold text-xs" style="color: ${color};">Cụm ${idx + 1} (${colorName})</span>
+                <span class="text-[11px] font-semibold bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded font-mono">${count} điểm (${pct}%)</span>
+              </div>
+              <div class="w-full bg-slate-100 rounded-full h-1.5 mb-2 overflow-hidden">
+                <div class="h-1.5 rounded-full" style="width: ${pct}%; background-color: ${color};"></div>
+              </div>
+              <div class="text-[11px] font-bold text-slate-800 mb-0.5">${profileTitle}</div>
+              <p class="text-[10.5px] text-slate-500 leading-snug">${profileDesc}</p>
+            </div>
+            <div class="mt-2 pt-2 border-t border-slate-100 text-[10px] text-slate-400 flex justify-between">
+              <span>Đại diện: <strong>${cl.reps.length} rep</strong></span>
+              <span>Tâm mean: <strong>(${Math.round(cl.mean[0])}, ${Math.round(cl.mean[1])})</strong></span>
+            </div>
+          </div>
+        `;
+      });
+
+      clusterCardsContainer.innerHTML = cardsHtml;
+      explanationPanel.classList.remove('hidden');
+    }
+
+    // %% Khối 04 - Mỗi lần gọi chỉ thực hiện một bước gom cụm
+    function step() {
+      const k = parseInt(kInput.value);
+      const c = parseInt(cInput.value);
+      const alpha = parseFloat(alphaInput.value);
+
+      if (clusters.length <= k) {
+        statusBadge.innerText = "Hoàn tất!";
+        statusBadge.className = "text-xs font-semibold px-3 py-1 bg-emerald-100 text-emerald-800 rounded-full border border-emerald-300";
+        stepInfo.innerHTML = `✅ Đã đạt số cụm mục tiêu <strong>k = ${k}</strong>! Các điểm đại diện sau co đã bao bọc và định hình cấu trúc cụm hoàn hảo. Xem phân tích chi tiết bên dưới.`;
+        stopAutoRun();
+        showExplanation();
+        return false;
+      }
+
+      // Tìm 2 cụm gần nhất
+      let minD = Infinity;
+      let pair = [0, 1];
+      for (let i = 0; i < clusters.length; i++) {
+        for (let j = i + 1; j < clusters.length; j++) {
+          const d = clusterDist(clusters[i], clusters[j]);
+          if (d < minD) {
+            minD = d;
+            pair = [i, j];
+          }
+        }
+      }
+
+      const [i, j] = pair;
+      const c1 = clusters[i];
+      const c2 = clusters[j];
+
+      // Sáp nhập
+      c1.points = c1.points.concat(c2.points);
+      updateClusterRepresentatives(c1, c, alpha);
+      clusters.splice(j, 1);
+
+      statusBadge.innerText = `Đang gom cụm (${clusters.length} còn lại)`;
+      statusBadge.className = "text-xs font-semibold px-3 py-1 bg-blue-100 text-blue-800 rounded-full border border-blue-300";
+
+      stepInfo.innerHTML = `🔹 <strong>Sáp nhập 2 cụm:</strong> Khoảng cách đại diện nhỏ nhất là <code>${minD.toFixed(2)}px</code>. Cụm mới có <strong>${c1.points.length}</strong> điểm, chọn lại <strong>${c1.reps.length}</strong> điểm đại diện phân tán và co về trọng tâm theo α=${alpha}.`;
+      updateUI();
+      draw();
+      return true;
+    }
+
+    // %% Khối 05 - Cập nhật giao diện và vẽ trạng thái hiện tại
+    function updateUI() {
+      currentCount.innerText = clusters.length;
+      targetK.innerText = kInput.value;
+      ptsCountInfo.innerText = `(Tổng: ${points.length} điểm)`;
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Vẽ lưới tọa độ mờ
+      ctx.strokeStyle = '#f1f5f9';
+      ctx.lineWidth = 1;
+      for (let x = 0; x < canvas.width; x += 40) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+      }
+      for (let y = 0; y < canvas.height; y += 40) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+      }
+
+      // Vẽ các cụm
+      clusters.forEach((cl, cIdx) => {
+        const color = COLORS[cIdx % COLORS.length];
+
+        // 1. Vẽ các điểm dữ liệu
+        cl.points.forEach(p => {
+          ctx.beginPath();
+          ctx.arc(p[0], p[1], 5, 0, Math.PI * 2);
+          ctx.fillStyle = color;
+          ctx.fill();
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 1.2;
+          ctx.stroke();
+        });
+
+        // 2. Vẽ đường nối từ mean tới rep (mờ)
+        if (cl.points.length > 1) {
+          ctx.strokeStyle = '#ef4444';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([3, 3]);
+          cl.reps.forEach(r => {
+            ctx.beginPath();
+            ctx.moveTo(cl.mean[0], cl.mean[1]);
+            ctx.lineTo(r[0], r[1]);
+            ctx.stroke();
+          });
+          ctx.setLineDash([]);
+        }
+
+        // 3. Vẽ điểm đại diện sau co (Dấu X đỏ đậm)
+        cl.reps.forEach(r => {
+          ctx.strokeStyle = '#b91c1c';
+          ctx.lineWidth = 2.5;
+          const s = 5;
+          ctx.beginPath();
+          ctx.moveTo(r[0] - s, r[1] - s);
+          ctx.lineTo(r[0] + s, r[1] + s);
+          ctx.moveTo(r[0] + s, r[1] - s);
+          ctx.lineTo(r[0] - s, r[1] + s);
+          ctx.stroke();
+        });
+
+        // 4. Vẽ trọng tâm mean (Ngôi sao vàng)
+        if (cl.points.length > 1) {
+          drawStar(cl.mean[0], cl.mean[1], 5, 9, 4);
+        }
+      });
+    }
+
+    function drawStar(cx, cy, spikes, outerRadius, innerRadius) {
+      let rot = Math.PI / 2 * 3;
+      let x = cx, y = cy;
+      let step = Math.PI / spikes;
+
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - outerRadius);
+      for (let i = 0; i < spikes; i++) {
+        x = cx + Math.cos(rot) * outerRadius;
+        y = cy + Math.sin(rot) * outerRadius;
+        ctx.lineTo(x, y);
+        rot += step;
+
+        x = cx + Math.cos(rot) * innerRadius;
+        y = cy + Math.sin(rot) * innerRadius;
+        ctx.lineTo(x, y);
+        rot += step;
+      }
+      ctx.lineTo(cx, cy - outerRadius);
+      ctx.closePath();
+      ctx.fillStyle = '#f59e0b';
+      ctx.fill();
+      ctx.strokeStyle = '#78350f';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+
+    // %% Khối 06 - Điều khiển chạy tự động
+    function stopAutoRun() {
+      if (autoInterval) {
+        clearInterval(autoInterval);
+        autoInterval = null;
+      }
+      isRunning = false;
+      runIcon.innerText = "▶️";
+      runText.innerText = "Chạy Tự Động (Auto Run)";
+      btnRun.className = "w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-3 rounded-lg text-sm shadow transition flex justify-center items-center gap-2";
+    }
+
+    function restartAutoRun() {
+      if (autoInterval) clearInterval(autoInterval);
+      const speed = parseInt(speedInput.value);
+      autoInterval = setInterval(() => {
+        const hasMore = step();
+        if (!hasMore) stopAutoRun();
+      }, speed);
+    }
+
+    // Tải các bộ dữ liệu mẫu
+    // %% Khối 07 - Nạp dữ liệu trước khi khởi tạo cụm
+    function loadDataset(name) {
+      stopAutoRun();
+      points = [];
+      const w = canvas.width, h = canvas.height;
+
+      if (CUSTOMER_DATASETS[name]) {
+        points = CUSTOMER_DATASETS[name].map(p => [...p]);
+        kInput.value = 3;
+        kVal.innerText = '3';
+        targetK.innerText = '3';
+      } else if (name === 'moons') {
+        const n = 120;
+        for (let i = 0; i < n; i++) {
+          const theta = (i / n) * Math.PI;
+          points.push([
+            250 + 150 * Math.cos(theta) + (Math.random() - 0.5) * 20,
+            240 - 100 * Math.sin(theta) + (Math.random() - 0.5) * 20
+          ]);
+          points.push([
+            370 + 150 * Math.cos(theta) + (Math.random() - 0.5) * 20,
+            260 + 100 * Math.sin(theta) + (Math.random() - 0.5) * 20
+          ]);
+        }
+        kInput.value = 2;
+        kVal.innerText = '2';
+        targetK.innerText = '2';
+      } else if (name === 'circles') {
+        for (let i = 0; i < 90; i++) {
+          const a = Math.random() * Math.PI * 2;
+          const r1 = 70 + Math.random() * 15;
+          points.push([w/2 + r1 * Math.cos(a), h/2 + r1 * Math.sin(a)]);
+        }
+        for (let i = 0; i < 150; i++) {
+          const a = Math.random() * Math.PI * 2;
+          const r2 = 180 + Math.random() * 20;
+          points.push([w/2 + r2 * Math.cos(a), h/2 + r2 * Math.sin(a)]);
+        }
+        kInput.value = 2;
+        kVal.innerText = '2';
+        targetK.innerText = '2';
+      } else if (name === 'toy') {
+        points = [
+          [150, 180], [200, 240], [200, 120],
+          [600, 360], [660, 420], [600, 480]
+        ];
+        kInput.value = 2;
+        cInput.value = 2;
+        alphaInput.value = 0.5;
+        kVal.innerText = '2'; cVal.innerText = '2'; alphaVal.innerText = '0.5';
+        targetK.innerText = '2';
+      } else if (name === 'outliers') {
+        for (let i = 0; i < 70; i++) {
+          points.push([250 + (Math.random() - 0.5) * 90, 250 + (Math.random() - 0.5) * 90]);
+          points.push([550 + (Math.random() - 0.5) * 90, 250 + (Math.random() - 0.5) * 90]);
+        }
+        for (let i = 0; i < 15; i++) {
+          points.push([Math.random() * w, Math.random() * h]);
+        }
+        kInput.value = 2;
+        kVal.innerText = '2';
+        targetK.innerText = '2';
+      }
+
+      statusBadge.innerText = "Sẵn sàng";
+      statusBadge.className = "text-xs font-semibold px-3 py-1 bg-amber-100 text-amber-800 rounded-full border border-amber-300";
+      stepInfo.innerHTML = `Đã tải tập dữ liệu: <strong>${datasetSelect.options[datasetSelect.selectedIndex]?.text || name}</strong> (${points.length} điểm). Bấm <strong>"Chạy Tự Động"</strong> để bắt đầu mô phỏng trực quan.`;
+      initClusters();
+    }
+
+    // %% Khối 08 - Đăng ký sự kiện sau khi đã khai báo hàm
+    // Xử lý nạp file CSV từ người dùng
+    const csvFileInput = document.getElementById('csvFileInput');
+    const btnUploadCsv = document.getElementById('btnUploadCsv');
+    btnUploadCsv.onclick = () => csvFileInput.click();
+
+    csvFileInput.onchange = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        try {
+          const text = evt.target.result;
+          const lines = text.trim().split('\n');
+          if (lines.length < 2) {
+            alert('File CSV không hợp lệ hoặc quá ít dòng!');
+            return;
+          }
+
+          const headers = lines[0].split(',').map(h => h.trim());
+          const rows = [];
+          for (let i = 1; i < lines.length; i++) {
+            const vals = lines[i].split(',').map(v => v.trim());
+            if (vals.length === headers.length) rows.push(vals);
+          }
+
+          const numCols = [];
+          headers.forEach((h, colIdx) => {
+            let isNum = true, count = 0;
+            for (let r = 0; r < Math.min(20, rows.length); r++) {
+              const n = parseFloat(rows[r][colIdx]);
+              if (isNaN(n)) { isNum = false; break; }
+              count++;
+            }
+            if (isNum && count > 0) numCols.push({ name: h, idx: colIdx });
+          });
+
+          if (numCols.length < 2) {
+            alert('Cần ít nhất 2 cột số trong file CSV để trực quan hóa 2D!');
+            return;
+          }
+
+          const colX = numCols[0].idx;
+          const colY = numCols[1].idx;
+
+          const maxPts = Math.min(160, rows.length);
+          const stepSize = Math.max(1, Math.floor(rows.length / maxPts));
+          const rawPts = [];
+          for (let i = 0; i < rows.length && rawPts.length < maxPts; i += stepSize) {
+            const vx = parseFloat(rows[i][colX]);
+            const vy = parseFloat(rows[i][colY]);
+            if (!isNaN(vx) && !isNaN(vy)) rawPts.push([vx, vy]);
+          }
+
+          const xs = rawPts.map(p => p[0]);
+          const ys = rawPts.map(p => p[1]);
+          const minX = Math.min(...xs), maxX = Math.max(...xs);
+          const minY = Math.min(...ys), maxY = Math.max(...ys);
+          const pad = 60;
+          const w = canvas.width, h = canvas.height;
+
+          points = rawPts.map(p => [
+            pad + ((p[0] - minX) / (maxX - minX + 1e-5)) * (w - 2 * pad),
+            (h - pad) - ((p[1] - minY) / (maxY - minY + 1e-5)) * (h - 2 * pad)
+          ]);
+
+          stepInfo.innerHTML = `✅ Đã nạp thành công <strong>${points.length}</strong> điểm từ file <code>${file.name}</code> (Trục X: ${numCols[0].name}, Trục Y: ${numCols[1].name}).`;
+          initClusters();
+        } catch (err) {
+          alert('Lỗi đọc file CSV: ' + err.message);
+        }
+      };
+      reader.readAsText(file);
+    };
+
+    // Sự kiện tương tác Canvas
+    canvas.addEventListener('mousedown', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      const x = (e.clientX - rect.left) * scaleX;
+      const y = (e.clientY - rect.top) * scaleY;
+
+      points.push([x, y]);
+      initClusters();
+    });
+
+    document.getElementById('btnStep').onclick = () => {
+      stopAutoRun();
+      step();
+    };
+    
+    btnRun.onclick = () => {
+      if (isRunning) {
+        stopAutoRun();
+      } else {
+        isRunning = true;
+        runIcon.innerText = "⏸️";
+        runText.innerText = "Tạm Dừng (Pause)";
+        btnRun.className = "w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-3 rounded-lg text-sm shadow transition flex justify-center items-center gap-2";
+        restartAutoRun();
+      }
+    };
+
+    document.getElementById('btnReset').onclick = () => {
+      loadDataset(datasetSelect.value);
+    };
+
+    datasetSelect.onchange = () => {
+      loadDataset(datasetSelect.value);
+    };
+
+    // %% Khối 09 - Điểm bắt đầu: nạp mẫu mặc định sau khi DOM đã sẵn sàng
+    loadDataset('customer_age_spending');
+  </script>
+</body>
+</html>
