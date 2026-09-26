@@ -790,22 +790,6 @@ st.markdown("""
         padding: 12px;
         margin-bottom: 10px;
     }
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        height: 48px;
-        white-space: pre-wrap;
-        background-color: #f1f5f9;
-        border-radius: 8px 8px 0 0;
-        padding: 8px 16px;
-        font-weight: 600;
-        color: #1e293b;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #103673 !important;
-        color: #ffffff !important;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -969,24 +953,32 @@ all_metrics = {
 }
 data_context = f"Dữ liệu: {dataset_type} | N = {len(X_data)} | k = {k_clusters} | c = {c_reps} | α = {alpha_shrink} | Seed = {noise_seed}"
 
-# %% Cell 17 - Khai báo tab theo thứ tự đọc và hiển thị
-tab_cure_sim, tab_cure_main, tab_cure_steps, tab_cure_flow, tab_vs_kmeans, tab_vs_kmedoids, tab_vs_hier, tab_vs_agnes, tab_vs_diana, tab_summary, tab_outlier = st.tabs([
-    "🎮 Mô Phỏng Tương Tác (Canvas HTML5)",
-    "🎯 CURE: Trực quan hóa & Phân cụm",
-    "📝 CURE: Ví dụ tính tay (Toy Example)",
-    "🔍 CURE: Quy trình 5 giai đoạn",
-    "⚔️ So sánh: CURE vs K-Means",
-    "⚔️ So sánh: CURE vs K-Medoids",
-    "⚔️ So sánh: CURE vs Hierarchical",
-    "🔗 AGNES: 4 Linkage so sánh",
-    "✂️ DIANA: Phân cụm Chia cắt",
-    "📋 Bảng Tổng hợp Đối sánh",
-    "🔎 Phân tích Ngoại lai (Outlier)"
-])
+# %% Cell 17 - Thanh chọn tác vụ thu gọn
+TASK_OPTIONS = {
+    "tab_cure_sim": "🎮 Mô Phỏng Tương Tác (Canvas HTML5)",
+    "tab_cure_main": "🎯 CURE: Trực quan hóa & Phân cụm",
+    "tab_cure_steps": "📝 CURE: Ví dụ tính tay (Toy Example)",
+    "tab_cure_flow": "🔍 CURE: Quy trình 5 giai đoạn",
+    "tab_vs_kmeans": "⚔️ So sánh: CURE vs K-Means",
+    "tab_vs_kmedoids": "⚔️ So sánh: CURE vs K-Medoids",
+    "tab_vs_hier": "⚔️ So sánh: CURE vs Hierarchical",
+    "tab_vs_agnes": "🔗 AGNES: 4 Linkage so sánh",
+    "tab_vs_diana": "✂️ DIANA: Phân cụm Chia cắt",
+    "tab_summary": "📋 Bảng Tổng hợp Đối sánh",
+    "tab_outlier": "🔎 Phân tích Ngoại lai (Outlier)",
+}
+with st.container(key="task_navigation"):
+    selected_task = st.selectbox(
+        "☰ Chọn tác vụ",
+        options=list(TASK_OPTIONS),
+        format_func=TASK_OPTIONS.get,
+        key="selected_task",
+    )
+
 
 # %% Cell 18 - Tab 01: 🎮 Mô Phỏng Tương Tác Từng Bước (Interactive CURE Visualizer)
 # Dùng dữ liệu và kết quả đã chuẩn bị ở các cell phía trên.
-with tab_cure_sim:
+if selected_task == "tab_cure_sim":
     render_tab_header('🎮 Mô Phỏng Tương Tác Từng Bước (Interactive CURE Visualizer)', 'Quan sát quá trình gom cụm từng bước và đối chiếu với kết quả CURE.', data_context)
     if "Data" in dataset_type:
         st.info(f"📊 Đang sử dụng dữ liệu thực tế: **Data/Test.csv** | Cặp thuộc tính: **{selected_feature_pair}** | Kích thước mẫu: **{len(X_data)} khách hàng**.")
@@ -1099,7 +1091,7 @@ with tab_cure_sim:
 
 # %% Cell 19 - Tab 02: 🎯 Kết Quả Phân Cụm Thuật Toán CURE
 # Dùng dữ liệu và kết quả đã chuẩn bị ở các cell phía trên.
-with tab_cure_main:
+if selected_task == "tab_cure_main":
     render_tab_header('🎯 Kết Quả Phân Cụm Thuật Toán CURE', 'Xem phân bố cụm, điểm đại diện và chỉ số đánh giá trên dữ liệu đã chọn.', data_context)
     st.markdown(f"Đang phân cụm trên tập: **{dataset_type}** với $N = {len(X_data)}$ điểm dữ liệu.")
 
@@ -1134,7 +1126,7 @@ with tab_cure_main:
 
 # %% Cell 20 - Tab 03: 📝 Bài toán Ví dụ Tính tay Từng bước (Toy Example)
 # Dùng dữ liệu và kết quả đã chuẩn bị ở các cell phía trên.
-with tab_cure_steps:
+if selected_task == "tab_cure_steps":
     render_tab_header('📝 Bài toán Ví dụ Tính tay Từng bước (Toy Example)', 'Theo dõi phép tính CURE trên bộ dữ liệu minh họa cố định gồm 6 điểm.', "Ví dụ cố định: N = 6 | k = 2 | c = 2 | α = 0.5")
     st.markdown(r"""
     Nhóm thiết lập một tập dữ liệu nhỏ gồm **6 điểm 2D cụ thể** để minh họa chính xác từng bước hoạt động của thuật toán CURE:
@@ -1207,7 +1199,7 @@ with tab_cure_steps:
 
 # %% Cell 21 - Tab 04: 🔍 Quy trình 5 Giai đoạn & Kiến trúc Xử lý Dữ liệu lớn
 # Dùng dữ liệu và kết quả đã chuẩn bị ở các cell phía trên.
-with tab_cure_flow:
+if selected_task == "tab_cure_flow":
     render_tab_header('🔍 Quy trình 5 Giai đoạn & Kiến trúc Xử lý Dữ liệu lớn', 'Tìm hiểu các giai đoạn của CURE và ý nghĩa của các tham số.', "Nội dung lý thuyết; các giai đoạn mở rộng không phải đều đã cài đặt trong bản demo.")
     
     col_f1, col_f2 = st.columns(2)
@@ -1245,7 +1237,7 @@ with tab_cure_flow:
 
 # %% Cell 22 - Tab 05: ⚔️ So sánh Đối đầu Trực diện: CURE vs K-Means
 # Dùng dữ liệu và kết quả đã chuẩn bị ở các cell phía trên.
-with tab_vs_kmeans:
+if selected_task == "tab_vs_kmeans":
     render_tab_header('⚔️ So sánh Đối đầu Trực diện: CURE vs K-Means', 'Đối chiếu CURE và K-Means trên cùng dữ liệu và cùng số cụm.', data_context)
     st.markdown("#### 🎯 Trọng tâm kiểm thử: Khắc phục hạn chế giả định cụm hình cầu của K-Means")
 
@@ -1313,7 +1305,7 @@ with tab_vs_kmeans:
 
 # %% Cell 23 - Tab 06: ⚔️ So sánh Đối đầu Trực diện: CURE vs K-Medoids (PAM)
 # Dùng dữ liệu và kết quả đã chuẩn bị ở các cell phía trên.
-with tab_vs_kmedoids:
+if selected_task == "tab_vs_kmedoids":
     render_tab_header('⚔️ So sánh Đối đầu Trực diện: CURE vs K-Medoids (PAM)', 'Đối chiếu CURE và K-Medoids trên cùng dữ liệu và cùng số cụm.', data_context)
     st.markdown("#### 🎯 Trọng tâm kiểm thử: Khả năng kháng điểm ngoại lai (Outliers) và cụm dị hướng (Anisotropic)")
 
@@ -1378,7 +1370,7 @@ with tab_vs_kmedoids:
 
 # %% Cell 24 - Tab 07: ⚔️ So sánh Đối đầu Trực diện: CURE vs Gom cụm Phân cấp (Single Linkage)
 # Dùng dữ liệu và kết quả đã chuẩn bị ở các cell phía trên.
-with tab_vs_hier:
+if selected_task == "tab_vs_hier":
     render_tab_header('⚔️ So sánh Đối đầu Trực diện: CURE vs Gom cụm Phân cấp (Single Linkage)', 'Đối chiếu CURE và phân cụm phân cấp Single Linkage.', data_context)
     st.markdown("#### 🎯 Trọng tâm kiểm thử: Khắc phục hiện tượng nối chuỗi (Chaining Effect) và Tối ưu bộ nhớ")
 
@@ -1445,7 +1437,7 @@ with tab_vs_hier:
 
 # %% Cell 25 - Tab 08: 🔗 AGNES (Agglomerative Nesting) — So sánh 4 kiểu Linkage
 # Dùng dữ liệu và kết quả đã chuẩn bị ở các cell phía trên.
-with tab_vs_agnes:
+if selected_task == "tab_vs_agnes":
     render_tab_header('🔗 AGNES (Agglomerative Nesting) — So sánh 4 kiểu Linkage', 'Đối chiếu bốn cách đo khoảng cách giữa các cụm trong AGNES.', data_context)
 
     # ─── Giới thiệu ─────────────────────────────────────────────────────────
@@ -1662,7 +1654,7 @@ with tab_vs_agnes:
 
 # %% Cell 26 - Tab 09: ✂️ DIANA (Divisive Analysis) — Phân cụm Phân cấp Chia cắt (Top-down)
 # Dùng dữ liệu và kết quả đã chuẩn bị ở các cell phía trên.
-with tab_vs_diana:
+if selected_task == "tab_vs_diana":
     render_tab_header('✂️ DIANA (Divisive Analysis) — Phân cụm Phân cấp Chia cắt (Top-down)', 'Quan sát cách DIANA chia cụm và đối chiếu với CURE.', data_context)
 
     # ─── Giới thiệu ─────────────────────────────────────────────────────────
@@ -1891,7 +1883,7 @@ with tab_vs_diana:
 
 # %% Cell 27 - Tab 10: 📋 Bảng Tổng hợp Ma trận Đối sánh Toàn diện
 # Dùng dữ liệu và kết quả đã chuẩn bị ở các cell phía trên.
-with tab_summary:
+if selected_task == "tab_summary":
     render_tab_header('📋 Bảng Tổng hợp Ma trận Đối sánh Toàn diện', 'Tổng hợp chỉ số của các thuật toán trên cùng dữ liệu đầu vào.', data_context)
     st.markdown("Bảng tổng hợp đối đầu giữa **CURE** và các thuật toán phân cụm trong chương trình môn học:")
 
@@ -1963,7 +1955,7 @@ with tab_summary:
             f"{kmed_time:.4f}s",
             "Dùng khi có ngoại lai nhưng dữ liệu nhỏ và hình cầu"
         ],
-        "Hierarchical (Single)": [
+        "AGNES (Single)": [
             "⭐⭐⭐⭐ (Tốt khi không có nhiễu)",
             "⭐⭐⭐⭐ (Tốt)",
             "⭐ (Rất nhạy cảm với nhiễu)",
@@ -1972,6 +1964,26 @@ with tab_summary:
             "⭐⭐⭐⭐ (Chỉ cần k)",
             f"{hier_time:.4f}s",
             "Chỉ dùng cho dữ liệu nhỏ và không có ngoại lai"
+        ],
+        "AGNES (Ward)": [
+            "⭐⭐ (Xu hướng cụm cầu)",
+            "⭐⭐⭐ (Trung bình)",
+            "⭐⭐⭐ (Khá hơn Single)",
+            "⭐⭐⭐⭐⭐ (Không bị nối chuỗi)",
+            "⭐ (Tràn bộ nhớ O(N²))",
+            "⭐⭐⭐⭐ (Chỉ cần k)",
+            f"{agnes_results['ward']['time']:.4f}s",
+            "Tốt cho dữ liệu kinh doanh phân bố tương đối đều"
+        ],
+        "DIANA": [
+            "⭐⭐ (Kém với cụm phi cầu)",
+            "⭐⭐⭐ (Trung bình)",
+            "⭐⭐ (Ngoại lai làm lệch diameter)",
+            "⭐⭐⭐⭐ (Hiếm khi bị nối chuỗi)",
+            "⭐ (Chi phí O(N²) tách chậm)",
+            "⭐⭐⭐⭐ (Chỉ cần k)",
+            f"{diana_time:.4f}s",
+            "Khám phá cấu trúc vĩ mô từ trên xuống cho dữ liệu nhỏ"
         ]
     })
     render_table(df_full_summary)
@@ -1979,7 +1991,7 @@ with tab_summary:
 
 # %% Cell 28 - Tab 11: 🔎 Phân tích Ngoại lai (Outlier Analysis) — Khách hàng Cao tuổi
 # Dùng dữ liệu và kết quả đã chuẩn bị ở các cell phía trên.
-with tab_outlier:
+if selected_task == "tab_outlier":
     render_tab_header('🔎 Phân tích Ngoại lai (Outlier Analysis) — Khách hàng Cao tuổi', 'Khảo sát nhóm khách hàng từ 70 tuổi trong mẫu dữ liệu đang chọn.', data_context)
 
     # Chỉ hoạt động khi dùng dữ liệu thực tế
