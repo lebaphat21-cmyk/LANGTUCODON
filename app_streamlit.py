@@ -1158,42 +1158,93 @@ if selected_task == "tab_cure_steps":
         st.markdown("#### 📐 Công thức và Phép tính chi tiết")
         if step_idx == 0:
             st.markdown(r"""
-            * Mỗi điểm ban đầu là 1 cụm đơn lẻ: $C_1=\{P_1\}, \dots, C_6=\{P_6\}$.
-            * Khoảng cách giữa 2 cụm chính là khoảng cách Euclidean giữa 2 điểm:
-              $$d(P_1, P_2) = \sqrt{(2-1)^2 + (3-2)^2} = \sqrt{2} \approx 1.414$$
-            * Cặp $(P_1, P_2)$ và $(P_4, P_5)$ có khoảng cách nhỏ nhất toàn ma trận ($1.414$).
+            ##### 📘 1. Công thức gốc lý thuyết
+            * **Khoảng cách giữa hai cụm CURE tổng quát:**
+              $$d(u, v) = \min_{p \in u.\text{rep},\; q \in v.\text{rep}} \|p - q\|_2 = \min_{p \in u.\text{rep},\; q \in v.\text{rep}} \sqrt{\sum_{i=1}^d (p_i - q_i)^2}$$
+            * *Quy về bước khởi tạo:* Mỗi điểm ban đầu là 1 cụm đơn lẻ $C_i = \{P_i\}$, do đó điểm đó là đại diện duy nhất ($C_i.\text{rep} = \{P_i\}$). Khoảng cách giữa 2 cụm chính là khoảng cách Euclidean giữa 2 điểm:
+              $$d(P_i, P_j) = \|P_i - P_j\|_2 = \sqrt{(x_i - x_j)^2 + (y_i - y_j)^2}$$
+
+            ##### 🔢 2. Phép tính số chi tiết
+            * Khởi tạo 6 cụm: $C_1=\{P_1\}, C_2=\{P_2\}, \dots, C_6=\{P_6\}$.
+            * Khoảng cách cặp gần nhất cụm trái:
+              $$d(P_1, P_2) = \sqrt{(2-1)^2 + (3-2)^2} = \sqrt{1^2 + 1^2} = \sqrt{2} \approx 1.414$$
+            * Khoảng cách cặp gần nhất cụm phải:
+              $$d(P_4, P_5) = \sqrt{(9-8)^2 + (8-7)^2} = \sqrt{1^2 + 1^2} = \sqrt{2} \approx 1.414$$
+            * **Kết luận:** Hai cặp $(P_1, P_2)$ và $(P_4, P_5)$ hòa khoảng cách nhỏ nhất toàn ma trận ($1.414$). Theo quy tắc chỉ số nhỏ hơn, CURE chọn sáp nhập cặp $(P_1, P_2)$.
             """)
         elif step_idx == 1:
             st.markdown(r"""
-            * Sáp nhập $P_1$ và $P_2$ thành cụm $C_{\{1,2\}}$.
-            * **Trọng tâm cụm mới:** $m = \left(\frac{1+2}{2}, \frac{2+3}{2}\right) = (1.5, 2.5)$.
+            ##### 📘 1. Công thức gốc lý thuyết
+            * **Trọng tâm cụm mới (Mean / Centroid):**
+              $$m = \mu(C) = \frac{1}{|C|} \sum_{p \in C} p = \left( \frac{1}{|C|} \sum_{i=1}^{|C|} x_i, \; \frac{1}{|C|} \sum_{i=1}^{|C|} y_i \right)$$
+            * **Co cụm các điểm đại diện về trọng tâm (Shrink Factor $\alpha$):**
+              $$p' = p + \alpha \cdot (m - p) = (1 - \alpha) \cdot p + \alpha \cdot m$$
+              *(Trong đó $\alpha \in [0, 1]$ là hệ số co cụm, kéo điểm đại diện $p$ lùi một khoảng tỷ lệ về phía trọng tâm $m$ để chống ngoại lai).*
+
+            ##### 🔢 2. Phép tính số chi tiết
+            * Sáp nhập $P_1(1, 2)$ và $P_2(2, 3)$ thành cụm $C_{\{1,2\}}$.
+            * **Trọng tâm cụm mới:**
+              $$m = \left(\frac{1+2}{2}, \frac{2+3}{2}\right) = (1.5, 2.5)$$
             * **Co cụm 2 điểm đại diện với $\alpha = 0.5$:**
-              $$p'_1 = (1, 2) + 0.5 \times ((1.5, 2.5) - (1, 2)) = (1.25, 2.25)$$
-              $$p'_2 = (2, 3) + 0.5 \times ((1.5, 2.5) - (2, 3)) = (1.75, 2.75)$$
-            * Điểm đại diện đã dịch chuyển lùi vào trong một khoảng an toàn!
+              $$p'_1 = (1, 2) + 0.5 \times ((1.5, 2.5) - (1, 2)) = (1, 2) + (0.25, 0.25) = (1.25, 2.25)$$
+              $$p'_2 = (2, 3) + 0.5 \times ((1.5, 2.5) - (2, 3)) = (2, 3) + (-0.25, -0.25) = (1.75, 2.75)$$
+            * **Ý nghĩa:** Điểm đại diện đã dịch chuyển lùi vào trong một khoảng an toàn $50\%$ để bảo vệ ranh giới cụm khỏi nhiễu ngoại vi!
             """)
         elif step_idx == 2:
             st.markdown(r"""
+            ##### 📘 1. Công thức gốc lý thuyết
+            * **Cặp cụm gần nhất được chọn để sáp nhập:**
+              $$(u^*, v^*) = \arg\min_{u, v} d(u, v)$$
+            * **Công thức Trọng tâm & Co cụm đại diện:**
+              $$m = \frac{1}{|C|} \sum_{p \in C} p, \qquad p' = p + \alpha \cdot (m - p)$$
+
+            ##### 🔢 2. Phép tính số chi tiết
+            * Khoảng cách $d(P_4, P_5) = \sqrt{(9-8)^2 + (8-7)^2} \approx 1.414$ nhỏ nhất giữa các cụm hiện có.
             * Sáp nhập $P_4(8, 7)$ và $P_5(9, 8)$ thành cụm $C_{\{4,5\}}$.
-            * **Trọng tâm cụm:** $m = (8.5, 7.5)$.
+            * **Trọng tâm cụm mới:**
+              $$m = \left(\frac{8+9}{2}, \frac{7+8}{2}\right) = (8.5, 7.5)$$
             * **Co cụm 2 điểm đại diện với $\alpha = 0.5$:**
-              $$p'_4 = (8.25, 7.25), \quad p'_5 = (8.75, 7.75)$$
-            * Số cụm hiện tại giảm xuống còn 4 cụm.
+              $$p'_4 = (8, 7) + 0.5 \times ((8.5, 7.5) - (8, 7)) = (8.25, 7.25)$$
+              $$p'_5 = (9, 8) + 0.5 \times ((8.5, 7.5) - (9, 8)) = (8.75, 7.75)$$
+            * **Kết luận:** Số cụm hiện tại giảm xuống còn 4 cụm: $C_{\{1,2\}}, C_3, C_{\{4,5\}}, C_6$.
             """)
         elif step_idx == 3:
             st.markdown(r"""
-            * Tính khoảng cách từ $P_3(2, 1)$ tới các điểm đại diện đã co của $C_{\{1,2\}}$:
-              $$d(P_3, p'_1) = \sqrt{(2-1.25)^2 + (1-2.25)^2} \approx 1.458$$
+            ##### 📘 1. Công thức gốc lý thuyết
+            * **Khoảng cách từ điểm $P_3$ tới cụm đã co $C_{\{1,2\}}$:**
+              $$d(P_3, C_{\{1,2\}}) = \min_{p \in C_{\{1,2\}}.\text{rep}} \|P_3 - p\|_2 = \min \left(\|P_3 - p'_1\|_2, \; \|P_3 - p'_2\|_2\right)$$
+            * **Giải thuật Farthest-Point Heuristic chọn $c=2$ điểm đại diện khi cụm có 3 điểm:**
+              - Điểm thứ nhất: $p_1 = \arg\max_{p \in C} \|p - m\|_2$ (điểm xa trọng tâm nhất).
+              - Điểm thứ hai: $p_2 = \arg\max_{p \in C \setminus \{p_1\}} \|p - p_1\|_2$ (điểm xa điểm thứ nhất nhất).
+              - Co về trọng tâm: $p' = p + \alpha(m - p)$.
+
+            ##### 🔢 2. Phép tính số chi tiết
+            * Tính khoảng cách từ $P_3(2, 1)$ tới 2 điểm đại diện đã co của $C_{\{1,2\}}$:
+              $$d(P_3, p'_1) = \sqrt{(2-1.25)^2 + (1-2.25)^2} = \sqrt{0.75^2 + (-1.25)^2} = \sqrt{0.5625 + 1.5625} \approx 1.458$$
+              $$d(P_3, p'_2) = \sqrt{(2-1.75)^2 + (1-2.75)^2} = \sqrt{0.25^2 + (-1.75)^2} = \sqrt{0.0625 + 3.0625} \approx 1.768$$
+              $$\implies d(P_3, C_{\{1,2\}}) = \min(1.458, 1.768) = 1.458$$
             * Do $1.458$ là khoảng cách nhỏ nhất, $P_3$ sáp nhập vào cụm $C_{\{1,2\}} \rightarrow C_{\{1,2,3\}}$.
-            * Trọng tâm mới: $m = (1.667, 2.0)$.
-            * Giải thuật **Farthest-Point** chọn 2 điểm xa nhất trong cụm rồi co về $m$.
+            * **Trọng tâm mới:** $m = \left(\frac{1+2+2}{3}, \frac{2+3+1}{3}\right) = \left(\frac{5}{3}, 2\right) \approx (1.667, 2.0)$.
+            * Hai điểm đại diện xa nhất được chọn là $P_2(2, 3)$ và $P_3(2, 1)$, sau đó co về $m$:
+              $$p'_a = P_2 + 0.5(m - P_2) \approx (1.833, 2.5), \qquad p'_b = P_3 + 0.5(m - P_3) \approx (1.833, 1.5)$$
             """)
         elif step_idx == 4:
             st.markdown(r"""
-            * $P_6(8, 9)$ sáp nhập vào cụm $C_{\{4,5\}} \rightarrow C_{\{4,5,6\}}$.
-            * Cụm bên phải hoàn tất với 3 phần tử.
+            ##### 📘 1. Công thức gốc lý thuyết
+            * **Khoảng cách từ điểm $P_6$ tới cụm $C_{\{4,5\}}$:**
+              $$d(P_6, C_{\{4,5\}}) = \min_{p \in C_{\{4,5\}}.\text{rep}} \|P_6 - p\|_2 = \min \left(\|P_6 - p'_4\|_2, \; \|P_6 - p'_5\|_2\right)$$
+            * **Điều kiện dừng thuật toán CURE (Stopping Criterion):**
+              $$\text{Dừng khi số cụm hiện tại: } |\mathcal{C}| = k$$
+
+            ##### 🔢 2. Phép tính số chi tiết
+            * Tính khoảng cách từ $P_6(8, 9)$ tới 2 đại diện đã co của $C_{\{4,5\}}$:
+              $$d(P_6, p'_4) = \sqrt{(8-8.25)^2 + (9-7.25)^2} = \sqrt{(-0.25)^2 + 1.75^2} \approx 1.768$$
+              $$d(P_6, p'_5) = \sqrt{(8-8.75)^2 + (9-7.75)^2} = \sqrt{(-0.75)^2 + 1.25^2} \approx 1.458$$
+              $$\implies d(P_6, C_{\{4,5\}}) = \min(1.768, 1.458) = 1.458$$
+            * Do $1.458$ nhỏ hơn nhiều khoảng cách giữa cụm trái và cụm phải ($\approx 6.09$), $P_6$ sáp nhập vào cụm $C_{\{4,5\}} \rightarrow C_{\{4,5,6\}}$.
+            * **Trọng tâm cụm bên phải:** $m = \left(\frac{8+9+8}{3}, \frac{7+8+9}{3}\right) = \left(\frac{25}{3}, 8\right) \approx (8.333, 8.0)$.
             * **Điều kiện dừng:** Số cụm còn lại đúng bằng $k = 2$.
-            * Thuật toán kết thúc thành công với độ chính xác tuyệt đối 100%!
+            * **Kết luận:** Thuật toán CURE hoàn tất xuất sắc với 2 cụm hoàn chỉnh và độ chính xác phân cụm đạt 100%!
             """)
 
 
