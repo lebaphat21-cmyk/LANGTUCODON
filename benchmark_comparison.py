@@ -1,182 +1,103 @@
-"""
-Thực nghiệm So sánh và Đánh giá thuật toán CURE với K-Means, K-Medoids, DBSCAN, Hierarchical
-Môn: Khai phá dữ liệu - ĐH Công Thương TP.HCM (HUIT)
-"""
-# %% Cell 01 - Thư viện và cấu hình
-import os
-import sys
-import time
+"""Thực nghiệm lặp trên 4 bộ dữ liệu, xuất CSV, cấu hình và biểu đồ.
 
-if sys.platform == 'win32':
-    try:
-        sys.stdout.reconfigure(encoding='utf-8')
-        sys.stderr.reconfigure(encoding='utf-8')
-    except Exception:
-        pass
-
+python benchmark_comparison.py --seeds 11 22 33 44 55 --repeats 3 --samples 200
+"""
+import argparse
+import json
+from importlib.metadata import version
+from pathlib import Path
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-from sklearn import datasets
-from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering
-from sklearn.metrics import silhouette_score, davies_bouldin_score, calinski_harabasz_score
-from cure_algorithm import CURE, KMedoids
+from sklearn.preprocessing import StandardScaler
+from data_pipeline import DATASETS, synthetic_data
+from experiments import ALGORITHMS, fit_model
+from evaluation import evaluate_clustering
 
-os.makedirs('charts', exist_ok=True)
-plt.rcParams['font.sans-serif'] = 'DejaVu Sans'
-plt.rcParams['axes.edgecolor'] = '#CCCCCC'
-plt.rcParams['axes.linewidth'] = 0.8
 
-# %% Cell 02 - Tạo dữ liệu kiểm thử
 def generate_datasets(n_samples=300, random_state=42):
-    moons, _ = datasets.make_moons(n_samples=n_samples, noise=0.06, random_state=random_state)
-    circles, _ = datasets.make_circles(n_samples=n_samples, factor=0.5, noise=0.05, random_state=random_state)
-    X_blobs, _ = datasets.make_blobs(n_samples=n_samples, cluster_std=[1.0, 1.0, 1.0], random_state=random_state)
-    transformation = [[0.6, -0.6], [-0.4, 0.8]]
-    aniso = np.dot(X_blobs, transformation)
-    blobs, _ = datasets.make_blobs(n_samples=n_samples - 40, centers=2, cluster_std=0.8, random_state=random_state)
-    rng = np.random.RandomState(random_state)
-    outliers = rng.uniform(low=-7, high=7, size=(40, 2))
-    outliers_data = np.vstack([blobs, outliers])
-    
-    return [
-        ('1. Two Moons (Trăng khuyết)', moons, 2),
-        ('2. Concentric Circles (Vòng tròn đồng tâm)', circles, 2),
-        ('3. Anisotropic (Cụm kéo dài)', aniso, 3),
-        ('4. Blobs with Outliers (Cụm có ngoại lai)', outliers_data, 2)
-    ]
+    return [(name, *synthetic_data(name, n_samples, random_state)) for name in DATASETS[1:]]
 
-# %% Cell 03 - Tính các chỉ số đánh giá
-def evaluate_clustering(X, labels):
-    unique_labels = set(labels)
-    valid_mask = labels != -1
-    n_clusters = len(set(labels[valid_mask]))
-    
-    if n_clusters < 2 or len(unique_labels) == 1:
-        return {'silhouette': -1.0, 'davies_bouldin': 99.0, 'calinski': 0.0, 'n_clusters': n_clusters}
-    
-    X_valid = X[valid_mask]
-    labels_valid = labels[valid_mask]
-    
-    sil = silhouette_score(X_valid, labels_valid)
-    db = davies_bouldin_score(X_valid, labels_valid)
-    ch = calinski_harabasz_score(X_valid, labels_valid)
-    return {'silhouette': sil, 'davies_bouldin': db, 'calinski': ch, 'n_clusters': n_clusters}
 
-# %% Cell 04 - Chạy thuật toán → đo chỉ số → xuất biểu đồ
-def run_benchmark():
-    print("=== BẮT ĐẦU THỰC NGHIỆM ĐỐI SÁNH: CURE VS K-MEANS VS K-MEDOIDS VS DBSCAN VS HIERARCHICAL ===")
-    dataset_list = generate_datasets()
-    
-    algorithms = [
-        ('CURE', lambda k: CURE(n_clusters=k, n_representatives=5, shrink_factor=0.4)),
-        ('K-Means', lambda k: KMeans(n_clusters=k, random_state=42, n_init='auto')),
-        ('K-Medoids', lambda k: KMedoids(n_clusters=k, random_state=42)),
-        ('DBSCAN', lambda k: DBSCAN(eps=0.25 if k==2 else 0.4, min_samples=5)),
-        ('Hierarchical (Single)', lambda k: AgglomerativeClustering(n_clusters=k, linkage='single'))
-    ]
-    
-    results = []
-    fig, axes = plt.subplots(len(dataset_list), len(algorithms), figsize=(22, 16))
-    fig.suptitle('SO SÁNH ĐỐI ĐẦU: CURE VS K-MEANS VS K-MEDOIDS VS DBSCAN VS HIERARCHICAL\n(Trường ĐH Công Thương TP.HCM - HUIT)', 
-                 fontsize=16, fontweight='bold', color='#103673', y=0.995)
-    
-    colors = np.array(['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'])
-    
-    for row_idx, (d_name, X, k) in enumerate(dataset_list):
-        print(f"\n--- Đang xử lý tập dữ liệu: {d_name} ---")
-        for col_idx, (alg_name, alg_factory) in enumerate(algorithms):
-            model = alg_factory(k)
-            t0 = time.time()
-            if alg_name == 'CURE':
-                model.fit(X)
-                labels = model.labels_
-                reps = model.get_representatives()
-            elif alg_name == 'K-Medoids':
-                labels = model.fit_predict(X)
-                reps = None
-            elif alg_name == 'DBSCAN':
-                labels = model.fit_predict(X)
-                reps = None
-            else:
-                labels = model.fit_predict(X)
-                reps = None
-            runtime = time.time() - t0
-            
-            metrics = evaluate_clustering(X, labels)
-            
-            results.append({
-                'Tập dữ liệu': d_name,
-                'Thuật toán': alg_name,
-                'Số cụm tìm được': metrics['n_clusters'],
-                'Silhouette Score': round(metrics['silhouette'], 4),
-                'Davies-Bouldin': round(metrics['davies_bouldin'], 4),
-                'Calinski-Harabasz': round(metrics['calinski'], 1),
-                'Thời gian (giây)': round(runtime, 4)
-            })
-            
-            ax = axes[row_idx, col_idx]
-            mask_noise = labels == -1
-            if np.any(mask_noise):
-                ax.scatter(X[mask_noise, 0], X[mask_noise, 1], c='#CCCCCC', s=15, alpha=0.5, label='Nhiễu')
-                
-            mask_normal = labels != -1
-            point_colors = [colors[l % len(colors)] for l in labels[mask_normal]]
-            ax.scatter(X[mask_normal, 0], X[mask_normal, 1], c=point_colors, s=18, alpha=0.7)
-            
-            if alg_name == 'CURE' and reps is not None:
-                for rep in reps:
-                    ax.scatter(rep[:, 0], rep[:, 1], c='black', marker='x', s=45, linewidths=2, zorder=5)
-                means = model.get_cluster_means()
-                ax.scatter(means[:, 0], means[:, 1], c='yellow', edgecolors='black', marker='*', s=120, zorder=6)
-            elif alg_name == 'K-Medoids' and model.cluster_centers_ is not None:
-                ax.scatter(model.cluster_centers_[:, 0], model.cluster_centers_[:, 1], c='red', marker='D', s=70, edgecolors='black', zorder=6, label='Medoids')
-                
-            if row_idx == 0:
-                ax.set_title(alg_name, fontsize=13, fontweight='bold', color='#103673', pad=10)
-                
-            if col_idx == 0:
-                ax.set_ylabel(d_name, fontsize=10, fontweight='bold', color='#1f4e79')
-                
-            sil_str = f"Silhouette: {metrics['silhouette']:.3f}" if metrics['silhouette'] != -1.0 else "N/A"
-            ax.text(0.03, 0.05, f"{sil_str}\nTime: {runtime:.3f}s", 
-                    transform=ax.transAxes, fontsize=8.5, 
-                    bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8, edgecolor='#AAAAAA'))
-            
-            ax.set_xticks([])
-            ax.set_yticks([])
-            
-    plt.tight_layout(rect=[0, 0, 1, 0.97])
-    overview_path = os.path.join('charts', 'cure_vs_others_all_datasets.png')
-    plt.savefig(overview_path, dpi=300)
-    plt.close()
-    print(f"-> Đã lưu biểu đồ tổng thể: {overview_path}")
-    
-    df_results = pd.DataFrame(results)
-    csv_path = os.path.join('charts', 'metrics_comparison_table.csv')
-    df_results.to_csv(csv_path, index=False, encoding='utf-8-sig')
-    print(f"-> Đã lưu bảng chỉ số ra CSV: {csv_path}")
-    
-    # Biểu đồ cột Silhouette
-    fig_bar, ax_bar = plt.subplots(figsize=(13, 6))
-    pivot_sil = df_results.pivot(index='Tập dữ liệu', columns='Thuật toán', values='Silhouette Score')
-    pivot_sil.plot(kind='bar', ax=ax_bar, colormap='viridis', width=0.8)
-    ax_bar.set_title('SO SÁNH CHỈ SỐ SILHOUETTE SCORE (CÀNG CAO CÀNG TỐT)', fontsize=13, fontweight='bold', color='#103673')
-    ax_bar.set_ylabel('Silhouette Score')
-    ax_bar.set_xlabel('')
-    ax_bar.set_xticklabels(ax_bar.get_xticklabels(), rotation=15, ha='right')
-    ax_bar.grid(axis='y', linestyle='--', alpha=0.6)
-    plt.legend(title='Thuật toán', bbox_to_anchor=(1.02, 1), loc='upper left')
-    plt.tight_layout()
-    bar_path = os.path.join('charts', 'silhouette_comparison_barchart.png')
-    plt.savefig(bar_path, dpi=300)
-    plt.close()
-    print(f"-> Đã lưu biểu đồ cột Silhouette: {bar_path}")
-    
-    return df_results
+def plot_example(name, X, truth, models, destination):
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    fig, axes = plt.subplots(2, 5, figsize=(19, 7))
+    entries = [('Nhãn thật', truth)] + [(name, m.labels_) for name, m in models.items()]
+    for ax, (label, labels) in zip(axes.flat, entries):
+        ax.scatter(X[:, 0], X[:, 1], c=labels, cmap='tab10', s=9)
+        ax.set_title(label, fontsize=10)
+        ax.set_aspect('equal', adjustable='datalim')
+        ax.set_xticks([])
+        ax.set_yticks([])
+    for ax in list(axes.flat)[len(entries):]:
+        ax.set_visible(False)
+    fig.suptitle(name + ' — một lượt minh họa (xem CSV để đánh giá nhiều seed)')
+    fig.tight_layout()
+    fig.savefig(destination, dpi=160)
+    plt.close(fig)
 
-# %% Cell 05 - Điểm vào khi chạy script
+
+def run_benchmark(seeds=(11, 22, 33, 44, 55), repeats=3, n_samples=200,
+                  standardize=True, output='benchmark_results', c=4, alpha=.4, eps=.25):
+    if n_samples < 20 or repeats < 1 or not seeds:
+        raise ValueError('Cần ít nhất 20 điểm, 1 lần lặp và 1 seed.')
+    out = Path(output)
+    out.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for dataset_index, name in enumerate(DATASETS[1:]):
+        for seed in seeds:
+            raw, truth, k = synthetic_data(name, n_samples, seed)
+            X = StandardScaler().fit_transform(raw) if standardize else raw
+            # Warm-up riêng từng thuật toán, không đưa vào thời gian báo cáo.
+            for algorithm in ALGORITHMS + ['DBSCAN']:
+                fit_model(algorithm, X, k, c, alpha, seed, history=False, eps=eps)
+            example = {}
+            for repeat in range(repeats):
+                # Đảo thứ tự có seed để giảm thiên lệch nhiệt/tải theo vị trí chạy.
+                order = np.random.RandomState(seed + repeat).permutation(ALGORITHMS + ['DBSCAN'])
+                for algorithm in order:
+                    model, elapsed = fit_model(algorithm, X, k, c, alpha, seed, history=False, eps=eps)
+                    metrics = evaluate_clustering(X, model.labels_, elapsed, truth)
+                    rows.append({'Dataset': name, 'Algorithm': algorithm, 'Seed': seed,
+                                 'Repeat': repeat+1, 'N': len(X), 'k_target': k, **metrics})
+                    if repeat == 0:
+                        example[algorithm] = model
+            if seed == seeds[0]:
+                plot_example(name, X, truth, {n: example[n] for n in ALGORITHMS + ['DBSCAN']},
+                             out / f'dataset_{dataset_index+1}.png')
+            print(f'Completed {name}, seed={seed}', flush=True)
+    raw_results = pd.DataFrame(rows)
+    raw_results.to_csv(out / 'runs.csv', index=False, encoding='utf-8-sig')
+    metrics = ['Silhouette', 'Davies-Bouldin', 'Calinski-Harabasz', 'ARI', 'NMI',
+               'Time', 'Clusters', 'Noise fraction', 'Evaluated points']
+    # Chất lượng: trung bình mỗi seed trước, không coi lần lặp thời gian là mẫu độc lập.
+    per_seed = raw_results.groupby(['Dataset', 'Algorithm', 'Seed'])[metrics].mean()
+    summary = per_seed.groupby(['Dataset', 'Algorithm']).agg(['mean', 'std', 'count'])
+    summary.columns = ['_'.join(column) for column in summary.columns]
+    summary = summary.reset_index()
+    summary.to_csv(out / 'summary.csv', index=False, encoding='utf-8-sig')
+    timing = raw_results.groupby(['Dataset', 'Algorithm']).Time.agg(['mean', 'std', 'min', 'max', 'count'])
+    timing.to_csv(out / 'timings.csv', encoding='utf-8-sig')
+    config = dict(seeds=list(seeds), repeats=repeats, samples=n_samples, standardize=standardize,
+                  c=c, alpha=alpha, dbscan_eps=eps, dbscan_min_samples=5, kmeans_n_init=10,
+                  blas_threads=1, warmup='one fit per algorithm and dataset/seed',
+                  timing='perf_counter, fit only, no metrics/preprocessing/history',
+                  quality='ARI/NMI on fixed ground-truth non-noise mask; predicted noise retained',
+                  internal_metrics='Exclude predicted -1; report coverage and noise fraction',
+                  summary='Mean/std across seed means. Timing details across all repeats in timings.csv.',
+                  limitations='Fixed parameters, not an optimal-parameter ranking; no CURE partitioning/outlier removal.',
+                  versions={name: version(name) for name in ['numpy', 'scipy', 'scikit-learn', 'pandas', 'matplotlib']})
+    (out / 'config.json').write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding='utf-8')
+    return summary
+
+
 if __name__ == '__main__':
-    df = run_benchmark()
-    print("\n=== KẾT QUẢ ĐỐI SÁNH TỔNG HỢP ===")
-    print(df.to_string(index=False))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--seeds', type=int, nargs='+', default=[11,22,33,44,55])
+    parser.add_argument('--repeats', type=int, default=3)
+    parser.add_argument('--samples', type=int, default=200)
+    parser.add_argument('--no-standardize', action='store_true')
+    parser.add_argument('--output', default='benchmark_results')
+    args = parser.parse_args()
+    run_benchmark(args.seeds, args.repeats, args.samples, not args.no_standardize, args.output)

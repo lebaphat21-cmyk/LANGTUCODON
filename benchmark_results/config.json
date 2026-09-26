@@ -1,0 +1,31 @@
+{
+  "seeds": [
+    11,
+    22,
+    33,
+    44,
+    55
+  ],
+  "repeats": 3,
+  "samples": 200,
+  "standardize": true,
+  "c": 4,
+  "alpha": 0.4,
+  "dbscan_eps": 0.25,
+  "dbscan_min_samples": 5,
+  "kmeans_n_init": 10,
+  "blas_threads": 1,
+  "warmup": "one fit per algorithm and dataset/seed",
+  "timing": "perf_counter, fit only, no metrics/preprocessing/history",
+  "quality": "ARI/NMI on fixed ground-truth non-noise mask; predicted noise retained",
+  "internal_metrics": "Exclude predicted -1; report coverage and noise fraction",
+  "summary": "Mean/std across seed means. Timing details across all repeats in timings.csv.",
+  "limitations": "Fixed parameters, not an optimal-parameter ranking; no CURE partitioning/outlier removal.",
+  "versions": {
+    "numpy": "2.5.3",
+    "scipy": "1.18.1",
+    "scikit-learn": "1.9.1",
+    "pandas": "3.0.6",
+    "matplotlib": "3.11.2"
+  }
+}

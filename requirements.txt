@@ -1,6 +1,8 @@
-streamlit
-numpy
-pandas
-scipy
-scikit-learn
-plotly
+streamlit>=1.64,<2
+numpy>=1.26,<3
+pandas>=2.2,<4
+scipy>=1.12,<2
+scikit-learn>=1.4,<2
+plotly>=5.20,<8
+matplotlib>=3.8,<4
+threadpoolctl>=3.2,<4

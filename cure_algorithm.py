@@ -1,381 +1,250 @@
-"""
-Thuật toán phân cụm CURE (Clustering Using REpresentatives)
-Cài đặt tối ưu hóa cho môn Khai phá dữ liệu - ĐH Công Thương TP.HCM (HUIT)
-"""
-
-# %% Cell 01 - Thư viện tính toán
+"""CURE với heap khoảng cách, PAM và DIANA; không lọc ngoại lai hai pha."""
+import heapq
+from numbers import Integral
 import numpy as np
-from scipy.spatial.distance import cdist, pdist, squareform
+from scipy.spatial.distance import cdist, pdist
 
-# %% Cell 02 - K-Medoids: khởi tạo → gán cụm → cập nhật medoid
+
+def validate_data(X, k=None):
+    X = np.asarray(X, dtype=float)
+    if X.ndim != 2 or min(X.shape) < 1 or not np.isfinite(X).all():
+        raise ValueError('Dữ liệu phải là ma trận số hữu hạn, không rỗng.')
+    if k is not None and (isinstance(k, bool) or not isinstance(k, Integral) or not 1 <= k <= len(X)):
+        raise ValueError('Số cụm k phải là số nguyên từ 1 đến số điểm.')
+    return X
+
+
 class KMedoids:
-    """
-    Thuật toán K-Medoids (PAM - Partitioning Around Medoids) chuẩn môn Khai phá dữ liệu.
-    Chọn medoid là điểm thực tế trong tập dữ liệu có tổng khoảng cách tới các điểm khác là nhỏ nhất.
+    """PAM: BUILD tham lam và SWAP đến cực tiểu cục bộ.
+
+    BUILD xác định; random_state giữ tương thích API, không được sử dụng.
     """
     def __init__(self, n_clusters=2, max_iter=100, random_state=42):
-        self.n_clusters = n_clusters
-        self.max_iter = max_iter
-        self.random_state = random_state
-        self.medoid_indices_ = None
-        self.labels_ = None
-        self.cluster_centers_ = None
+        self.n_clusters, self.max_iter, self.random_state = n_clusters, max_iter, random_state
 
     def fit(self, X):
-        X = np.asarray(X, dtype=float)
-        n_samples = len(X)
-        rng = np.random.RandomState(self.random_state)
-        medoids = rng.choice(n_samples, size=self.n_clusters, replace=False)
-        dist_mat = cdist(X, X)
-
-        for _ in range(self.max_iter):
-            labels = np.argmin(dist_mat[:, medoids], axis=1)
-            new_medoids = np.copy(medoids)
-
-            for k in range(self.n_clusters):
-                cluster_members = np.where(labels == k)[0]
-                if len(cluster_members) > 0:
-                    sub_dist = dist_mat[np.ix_(cluster_members, cluster_members)]
-                    costs = np.sum(sub_dist, axis=1)
-                    best_member = cluster_members[np.argmin(costs)]
-                    new_medoids[k] = best_member
-
-            if np.array_equal(medoids, new_medoids):
+        X = validate_data(X, self.n_clusters)
+        if not isinstance(self.max_iter, Integral) or self.max_iter < 1:
+            raise ValueError('max_iter phải là số nguyên dương.')
+        D = cdist(X, X)
+        medoids = [int(np.argmin(D.sum(axis=0)))]
+        nearest = D[:, medoids[0]].copy()
+        while len(medoids) < self.n_clusters:
+            costs = np.minimum(nearest[:, None], D).sum(axis=0)
+            costs[medoids] = np.inf
+            medoids.append(int(np.argmin(costs)))
+            nearest = np.minimum(nearest, D[:, medoids[-1]])
+        medoids = np.array(medoids)
+        self.objective_history_ = [float(nearest.sum())]
+        self.converged_ = False
+        for iteration in range(self.max_iter):
+            dm = D[:, medoids]
+            owner, nearest = dm.argmin(axis=1), dm.min(axis=1)
+            second = (np.partition(dm, 1, axis=1)[:, 1] if self.n_clusters > 1
+                      else np.full(len(X), np.inf))
+            best_cost, swap = float(nearest.sum()), None
+            for slot in range(self.n_clusters):
+                without = np.where(owner == slot, second, nearest)
+                costs = np.minimum(without[:, None], D).sum(axis=0)
+                costs[medoids] = np.inf
+                candidate = int(np.argmin(costs))
+                if costs[candidate] < best_cost - 1e-10:
+                    best_cost, swap = float(costs[candidate]), (slot, candidate)
+            if swap is None:
+                self.converged_ = True
                 break
-            medoids = new_medoids
-
+            medoids[swap[0]] = swap[1]
+            self.objective_history_.append(best_cost)
+        self.n_iter_ = iteration + 1
         self.medoid_indices_ = medoids
-        self.labels_ = np.argmin(dist_mat[:, medoids], axis=1)
-        self.cluster_centers_ = X[medoids]
+        self.labels_ = D[:, medoids].argmin(axis=1)
+        # Gỡ hòa khi điểm trùng nhau: medoid sở hữu chính nó, không đổi chi phí.
+        self.labels_[medoids] = np.arange(self.n_clusters)
+        self.cluster_centers_ = X[medoids].copy()
+        self.inertia_ = float(D[np.arange(len(X)), medoids[self.labels_]].sum())
         return self
 
     def fit_predict(self, X):
         return self.fit(X).labels_
 
 
-# %% Cell 03 - Cấu trúc cụm và chọn điểm đại diện
 class CURECluster:
-    """Đại diện cho một cụm trong thuật toán CURE"""
-    def __init__(self, points, cluster_id):
+    def __init__(self, points, cluster_id, indices=None):
         self.cluster_id = cluster_id
-        self.points = np.array(points, dtype=float)
-        if len(self.points.shape) == 1:
-            self.points = self.points.reshape(1, -1)
-        self.mean = np.mean(self.points, axis=0)
-        self.rep_points = np.copy(self.points)
-        
+        self.points = np.atleast_2d(np.asarray(points, dtype=float))
+        self.indices = np.asarray(indices if indices is not None else np.arange(len(self.points)), dtype=int)
+        self.mean = self.points.mean(axis=0)
+        self.rep_points = self.points.copy()
+
     def update_representatives(self, c, alpha):
-        """
-        1. Tính trọng tâm mean của cụm.
-        2. Chọn c điểm đại diện rải rác tốt nhất (well-scattered) bằng Farthest-Point Heuristic.
-        3. Co các điểm đại diện về phía trọng tâm theo hệ số alpha:
-           p' = p + alpha * (mean - p)
-        """
-        self.mean = np.mean(self.points, axis=0)
-        n_points = len(self.points)
-        
-        if n_points <= c:
-            selected_rep = np.copy(self.points)
+        self.mean = self.points.mean(axis=0)
+        if len(self.points) <= c:
+            selected = self.points.copy()
         else:
-            # Điểm đầu tiên: xa trọng tâm nhất
-            dists_to_mean = np.linalg.norm(self.points - self.mean, axis=1)
-            first_idx = np.argmax(dists_to_mean)
-            selected_rep = [self.points[first_idx]]
-            
-            # Các điểm tiếp theo: chọn điểm có min khoảng cách tới các rep đã chọn là lớn nhất
+            first = int(np.argmax(np.linalg.norm(self.points - self.mean, axis=1)))
+            indices = [first]
+            nearest = np.linalg.norm(self.points - self.points[first], axis=1)
             for _ in range(1, c):
-                current_reps = np.array(selected_rep)
-                dists = cdist(self.points, current_reps)
-                min_dists = np.min(dists, axis=1)
-                next_idx = np.argmax(min_dists)
-                selected_rep.append(self.points[next_idx])
-                
-            selected_rep = np.array(selected_rep)
-            
-        # Co về phía trọng tâm
-        self.rep_points = selected_rep + alpha * (self.mean - selected_rep)
+                nearest[indices] = -np.inf
+                nxt = int(np.argmax(nearest))
+                indices.append(nxt)
+                nearest = np.minimum(nearest, np.linalg.norm(self.points - self.points[nxt], axis=1))
+            selected = self.points[indices]
+        self.rep_points = selected + alpha * (self.mean - selected)
 
 
-# %% Cell 04 - CURE: lấy mẫu → gom cụm → gán nhãn
 class CURE:
+    """CURE dùng heap với vô hiệu hóa cặp cũ theo phiên bản cụm.
+
+    Với c và số chiều cố định: O(s² log s) thời gian, O(s²) bộ nhớ.
+    Giữ nhãn mẫu đã gom; chỉ predict cho điểm ngoài mẫu. history_ ghi phép gom
+    và đại diện để giao diện phát lại. Chưa có phân hoạch/lọc ngoại lai hai pha.
     """
-    Lớp triển khai thuật toán CURE tối ưu tốc độ với ma trận khoảng cách động.
-    
-    Tham số:
-    - n_clusters (k): Số cụm mục tiêu (mặc định 2)
-    - n_representatives (c): Số điểm đại diện trên mỗi cụm (mặc định 5)
-    - shrink_factor (alpha): Hệ số co cụm về trọng tâm (mặc định 0.5)
-    - sample_size (s): Kích thước mẫu ngẫu nhiên (nếu None thì lấy toàn bộ)
-    """
-    def __init__(self, n_clusters=2, n_representatives=5, shrink_factor=0.5, sample_size=None, random_state=42):
-        self.n_clusters = n_clusters
-        self.n_representatives = n_representatives
-        self.shrink_factor = shrink_factor
-        self.sample_size = sample_size
-        self.random_state = random_state
-        self.clusters_ = []
-        self.labels_ = None
-        self.history_ = []
+    def __init__(self, n_clusters=2, n_representatives=5, shrink_factor=0.5,
+                 sample_size=None, random_state=42, record_history=True):
+        self.n_clusters, self.n_representatives = n_clusters, n_representatives
+        self.shrink_factor, self.sample_size = shrink_factor, sample_size
+        self.random_state, self.record_history = random_state, record_history
+        self.clusters_, self.history_, self.labels_ = [], [], None
 
     def _cluster_dist(self, c1, c2):
-        """Tính khoảng cách nhỏ nhất giữa các điểm đại diện (đã co) của 2 cụm"""
-        dists = cdist(c1.rep_points, c2.rep_points)
-        return np.min(dists)
+        return float(cdist(c1.rep_points, c2.rep_points).min())
 
     def fit(self, X):
-        """Thực thi thuật toán CURE trên tập dữ liệu X"""
-        # Bản demo dùng ma trận khoảng cách O(s²), chưa cài phân hoạch
-        # hay hai pha loại ngoại lai trong quy trình CURE mở rộng.
-        X = np.asarray(X, dtype=float)
-        n_samples = len(X)
-        
-        # 1. Lấy mẫu ngẫu nhiên nếu kích thước dữ liệu lớn
-        if self.sample_size is not None and self.sample_size < n_samples:
-            rng = np.random.RandomState(self.random_state)  # Dùng instance, tránh side effect global seed
-            sample_indices = rng.choice(n_samples, size=self.sample_size, replace=False)
-            X_sample = X[sample_indices]
-        else:
-            X_sample = X
-            
-        N = len(X_sample)
-        
-        # Khởi tạo mỗi điểm là 1 cụm ban đầu
-        clusters = {}
-        for i in range(N):
-            c = CURECluster(X_sample[i:i+1], cluster_id=i)
-            c.update_representatives(self.n_representatives, self.shrink_factor)
-            clusters[i] = c
-            
-        # Ma trận khoảng cách ban đầu giữa các điểm N x N
-        # Vì ban đầu mỗi cụm là 1 điểm, dist_matrix là khoảng cách euclidean giữa các điểm
-        d_condensed = pdist(X_sample)
-        dist_matrix = squareform(d_condensed)
-        np.fill_diagonal(dist_matrix, np.inf)
-        
-        active_ids = list(range(N))
-        
-        # 2. Gom cụm phân cấp tối ưu (duy trì ma trận khoảng cách)
-        while len(active_ids) > self.n_clusters:
-            # Tìm cặp cụm (u, v) có khoảng cách nhỏ nhất trong active_ids
-            # Sub-matrix của active_ids
-            sub_dist = dist_matrix[np.ix_(active_ids, active_ids)]
-            
-            # Tọa độ min trong sub_dist
-            min_pos = np.argmin(sub_dist)
-            r, c_idx = np.unravel_index(min_pos, sub_dist.shape)
-            
-            u = active_ids[r]
-            v = active_ids[c_idx]
-            
-            if u > v:
-                u, v = v, u  # Đảm bảo u < v
-                
-            # Sáp nhập cụm v vào cụm u
-            c_u = clusters[u]
-            c_v = clusters[v]
-            merged_pts = np.vstack((c_u.points, c_v.points))
-            new_cluster = CURECluster(merged_pts, cluster_id=u)
-            new_cluster.update_representatives(self.n_representatives, self.shrink_factor)
-            clusters[u] = new_cluster
-            
-            # Xóa cụm v
+        X = validate_data(X, self.n_clusters)
+        if not isinstance(self.n_representatives, Integral) or self.n_representatives < 1:
+            raise ValueError('Số điểm đại diện c phải là số nguyên dương.')
+        if not np.isfinite(self.shrink_factor) or not 0 <= self.shrink_factor <= 1:
+            raise ValueError('Hệ số co alpha phải thuộc [0, 1].')
+        if self.sample_size is not None and (
+            not isinstance(self.sample_size, Integral) or self.sample_size < self.n_clusters
+        ):
+            raise ValueError('Kích thước mẫu phải là số nguyên không nhỏ hơn k.')
+        self.n_features_in_ = X.shape[1]
+        self.history_ = []
+        self.sample_indices_ = np.arange(len(X))
+        if self.sample_size is not None and self.sample_size < len(X):
+            self.sample_indices_ = np.random.RandomState(self.random_state).choice(
+                len(X), self.sample_size, replace=False)
+        sample = X[self.sample_indices_]
+        clusters = {i: CURECluster([p], i, [self.sample_indices_[i]]) for i, p in enumerate(sample)}
+        versions = {i: 0 for i in clusters}
+        D = cdist(sample, sample)
+        heap = [(float(D[i, j]), i, j, 0, 0) for i in clusters for j in range(i + 1, len(sample))]
+        heapq.heapify(heap)
+        del D
+        while len(clusters) > self.n_clusters:
+            distance, u, v, vu, vv = heapq.heappop(heap)
+            if u not in clusters or v not in clusters or versions[u] != vu or versions[v] != vv:
+                continue
+            left, right = clusters[u], clusters[v]
+            merged = CURECluster(np.vstack((left.points, right.points)), u,
+                                 np.concatenate((left.indices, right.indices)))
+            merged.update_representatives(self.n_representatives, self.shrink_factor)
+            clusters[u] = merged
             del clusters[v]
-            active_ids.remove(v)
-            
-            # Đánh dấu khoảng cách đến v là vô cực
-            dist_matrix[v, :] = np.inf
-            dist_matrix[:, v] = np.inf
-            
-            # Cập nhật lại khoảng cách từ cụm mới u đến các cụm còn lại trong active_ids
-            for w in active_ids:
-                if w == u:
-                    dist_matrix[u, w] = np.inf
-                    dist_matrix[w, u] = np.inf
-                else:
-                    d = self._cluster_dist(clusters[u], clusters[w])
-                    dist_matrix[u, w] = d
-                    dist_matrix[w, u] = d
-                    
-        self.clusters_ = [clusters[idx] for idx in active_ids]
-        
-        # 3. Gán nhãn toàn bộ dữ liệu X dựa vào điểm đại diện gần nhất
-        self.labels_ = self.predict(X)
+            versions[u] += 1
+            if self.record_history:
+                self.history_.append({'left': u, 'right': v, 'distance': distance,
+                                      'size': len(merged.points), 'mean': merged.mean.tolist(),
+                                      'representatives': merged.rep_points.tolist()})
+            for w in clusters:
+                if w != u:
+                    a, b = sorted((u, w))
+                    heapq.heappush(heap, (self._cluster_dist(merged, clusters[w]), a, b,
+                                          versions[a], versions[b]))
+        self.clusters_ = [clusters[i] for i in sorted(clusters)]
+        self.labels_ = np.empty(len(X), dtype=int)
+        for label, cluster in enumerate(self.clusters_):
+            self.labels_[cluster.indices] = label
+        outside = np.ones(len(X), dtype=bool)
+        outside[self.sample_indices_] = False
+        if outside.any():
+            self.labels_[outside] = self.predict(X[outside])
         return self
 
+    def fit_predict(self, X):
+        return self.fit(X).labels_
+
     def predict(self, X):
-        """Gán mỗi điểm vào cụm có điểm đại diện gần nhất"""
-        X = np.asarray(X, dtype=float)
-        
-        all_reps = []
-        rep_cluster_mapping = []
-        for cluster_idx, c in enumerate(self.clusters_):
-            for rep in c.rep_points:
-                all_reps.append(rep)
-                rep_cluster_mapping.append(cluster_idx)
-                
-        all_reps = np.array(all_reps)
-        rep_cluster_mapping = np.array(rep_cluster_mapping)
-        
-        dists = cdist(X, all_reps)
-        closest_rep_indices = np.argmin(dists, axis=1)
-        return rep_cluster_mapping[closest_rep_indices]
+        if not self.clusters_:
+            raise ValueError('Cần fit CURE trước khi predict.')
+        X = validate_data(X)
+        if X.shape[1] != self.n_features_in_:
+            raise ValueError('Số thuộc tính không khớp dữ liệu đã fit.')
+        reps = np.vstack(self.get_representatives())
+        owners = np.concatenate([np.full(len(c.rep_points), i) for i, c in enumerate(self.clusters_)])
+        return np.concatenate([owners[cdist(batch, reps).argmin(axis=1)]
+                               for batch in np.array_split(X, max(1, (len(X) + 4095) // 4096))])
 
     def get_representatives(self):
-        """Danh sách các điểm đại diện của các cụm"""
-        return [np.copy(c.rep_points) for c in self.clusters_]
+        return [c.rep_points.copy() for c in self.clusters_]
 
     def get_cluster_means(self):
-        """Danh sách trọng tâm các cụm"""
         return np.array([c.mean for c in self.clusters_])
 
 
-# %% Cell 05 - DIANA: chọn cụm → tách cụm → gán nhãn
 class DIANA:
+    """DIANA chính xác: tách cụm có đường kính lớn nhất; chuyển từng điểm.
+
+    max_points_full giữ tương thích API, đường kính luôn được tính chính xác.
     """
-    DIANA (DIvisive ANAlysis) — Phân cụm phân cấp hướng từ trên xuống (Top-down Divisive).
+    def __init__(self, n_clusters=2, max_points_full=None):
+        self.n_clusters, self.max_points_full = n_clusters, max_points_full
 
-    Nguyên lý hoạt động (ngược với AGNES/CURE):
-      1. Bắt đầu với 1 cụm lớn duy nhất chứa tất cả N điểm.
-      2. Chọn cụm có ĐƯỜNG KÍNH (max pairwise distance) lớn nhất để tách.
-      3. Trong cụm đó, tìm điểm có avg-dissimilarity cao nhất tới các điểm còn lại
-         → đó là "hạt nhân" (splinter) của cụm con mới.
-      4. Lần lượt chuyển các điểm gần splinter hơn main-cluster sang cụm con.
-      5. Lặp lại bước 2–4 đến khi đạt đúng k cụm mục tiêu.
-
-    Tham số:
-      - n_clusters (k): Số cụm mục tiêu (mặc định 2).
-      - max_points_full: Ngưỡng kích thước cụm để tính diameter đầy đủ (default 200).
-        Nếu cụm lớn hơn, dùng xấp xỉ (random sampling) để tránh quá chậm.
-    """
-
-    def __init__(self, n_clusters=2, max_points_full=200):
-        self.n_clusters = n_clusters
-        self.max_points_full = max_points_full
-        self.labels_ = None
-        self.clusters_ = None
-
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
     def _diameter(self, X, indices):
-        """Đường kính cụm = max khoảng cách giữa 2 điểm bất kỳ trong cụm."""
-        pts = X[indices]
-        if len(pts) <= 1:
-            return 0.0
-        # Nếu cụm nhỏ đủ: tính chính xác
-        if len(pts) <= self.max_points_full:
-            return float(np.max(pdist(pts)))
-        # Cụm lớn: xấp xỉ bằng max khoảng cách tới trọng tâm * 2
-        mean_pt = pts.mean(axis=0)
-        return float(np.max(np.linalg.norm(pts - mean_pt, axis=1))) * 2.0
+        return float(pdist(X[indices]).max()) if len(indices) > 1 else 0.0
+
+    def _split_distances(self, distances, indices):
+        n = len(indices)
+        if n < 2:
+            return list(indices), []
+        D = distances[np.ix_(indices, indices)]
+        splinter = int(np.argmax(D.sum(axis=1)))
+        main = np.ones(n, dtype=bool)
+        main[splinter] = False
+        split = ~main
+        sum_main, sum_split = D[:, main].sum(axis=1), D[:, split].sum(axis=1)
+        while main.sum() > 1:
+            candidates = np.flatnonzero(main)
+            gains = sum_main[candidates] / (main.sum() - 1) - sum_split[candidates] / split.sum()
+            best = int(np.argmax(gains))
+            if gains[best] <= 0:
+                break
+            move = candidates[best]
+            main[move], split[move] = False, True
+            sum_main -= D[:, move]
+            sum_split += D[:, move]
+        return np.asarray(indices)[main].tolist(), np.asarray(indices)[split].tolist()
 
     def _split_cluster(self, X, indices):
-        """
-        Tách 1 cụm thành 2 theo cơ chế DIANA:
-          a. Tìm điểm có avg dissimilarity cao nhất → "splinter" (hạt nhân cụm con).
-          b. Di chuyển các điểm từ main → split nếu gần split hơn main.
-          c. Lặp đến khi không còn điểm nào di chuyển.
+        return self._split_distances(cdist(X, X), indices)
 
-        Trả về: (indices_main, indices_split)
-        """
-        pts = X[indices]
-        n = len(pts)
-
-        if n <= 1:
-            return list(indices), []
-
-        # a. Tính avg distance mỗi điểm đến các điểm khác trong cụm
-        dist_mat = squareform(pdist(pts))  # n×n, đường chéo = 0
-        # avg dissimilarity (bỏ qua chính nó)
-        np.fill_diagonal(dist_mat, 0.0)
-        avg_diss = dist_mat.sum(axis=1) / max(n - 1, 1)
-
-        splinter_local = int(np.argmax(avg_diss))
-
-        # Khởi tạo: main = tất cả trừ splinter, split = {splinter}
-        main_set  = set(range(n)) - {splinter_local}
-        split_set = {splinter_local}
-
-        # b. Lặp di chuyển
-        changed = True
-        while changed:
-            changed = False
-            to_move = []
-            for i in list(main_set):
-                # avg dist đến main (trừ chính i)
-                main_others = list(main_set - {i})
-                if main_others:
-                    d_main = dist_mat[i, main_others].mean()
-                else:
-                    d_main = np.inf  # main chỉ còn mình i → nên chuyển
-
-                # avg dist đến split
-                d_split = dist_mat[i, list(split_set)].mean()
-
-                if d_split < d_main:
-                    to_move.append(i)
-
-            if to_move:
-                for i in to_move:
-                    main_set.discard(i)
-                    split_set.add(i)
-                changed = True
-
-        indices_main  = [indices[i] for i in sorted(main_set)]
-        indices_split = [indices[i] for i in sorted(split_set)]
-        return indices_main, indices_split
-
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
     def fit(self, X):
-        """Chạy DIANA trên tập dữ liệu X (ndarray shape N×D)."""
-        X = np.asarray(X, dtype=float)
-        n = len(X)
-
-        # Bắt đầu: 1 cụm chứa tất cả
-        clusters = [list(range(n))]
-
+        X = validate_data(X, self.n_clusters)
+        D = cdist(X, X)
+        clusters, diameters = [list(range(len(X)))], [float(D.max())]
         while len(clusters) < self.n_clusters:
-            # Chọn cụm có đường kính lớn nhất để tách
-            diameters = [self._diameter(X, c) for c in clusters]
-            split_idx = int(np.argmax(diameters))
-
-            target = clusters[split_idx]
-            if len(target) <= 1:
-                # Không thể tách thêm → dừng
-                break
-
-            main_part, split_part = self._split_cluster(X, target)
-
-            if not main_part or not split_part:
-                # Tránh tách rỗng
-                break
-
-            clusters.pop(split_idx)
-            clusters.append(main_part)
-            clusters.append(split_part)
-
-        # Gán nhãn
-        self.labels_ = np.zeros(n, dtype=int)
+            # Bỏ singleton ngay cả khi tất cả tọa độ trùng nhau.
+            eligible = [i for i, cluster in enumerate(clusters) if len(cluster) > 1]
+            idx = max(eligible, key=lambda i: diameters[i])
+            main, split = self._split_distances(D, clusters.pop(idx))
+            diameters.pop(idx)
+            for part in (main, split):
+                clusters.append(part)
+                diameters.append(float(D[np.ix_(part, part)].max()))
+        self.labels_ = np.empty(len(X), dtype=int)
         for label, cluster in enumerate(clusters):
-            for idx in cluster:
-                self.labels_[idx] = label
-
+            self.labels_[cluster] = label
         self.clusters_ = clusters
+        self.cluster_centers_ = np.array([X[c].mean(axis=0) for c in clusters])
         return self
 
     def fit_predict(self, X):
-        """Fit và trả về nhãn phân cụm."""
         return self.fit(X).labels_
 
     def get_cluster_means(self):
-        """Trọng tâm (mean) của từng cụm."""
-        X = None  # Cần X để tính — không lưu X trong class để tiết kiệm RAM
-        return None  # Xem get_cluster_means_from_X
+        return self.cluster_centers_.copy()
 
     def get_cluster_means_from_X(self, X):
-        """Trả về array (k, D) chứa trọng tâm từng cụm."""
-        X = np.asarray(X, dtype=float)
-        return np.array([X[c].mean(axis=0) for c in self.clusters_])
-
+        return np.array([np.asarray(X)[c].mean(axis=0) for c in self.clusters_])
