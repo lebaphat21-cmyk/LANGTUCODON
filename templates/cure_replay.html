@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+*{box-sizing:border-box}body{margin:0;font:14px 'Segoe UI',sans-serif;color:#334155;background:white}.panel{border:1px solid #dbe3ec;border-radius:12px;padding:16px}.top,.controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.top{justify-content:space-between;margin-bottom:12px}h3{margin:0;color:#103673;font-size:17px}.muted{font-size:12px;color:#64748b;margin:6px 0}canvas{width:100%;height:auto;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;display:block}.controls{margin:12px 0}button{padding:9px 12px;border-radius:7px;border:1px solid #cbd5e1;background:white;color:#103673;cursor:pointer}button.primary{background:#103673;color:white}button:disabled{opacity:.45;cursor:default}button:focus-visible,input:focus-visible{outline:2px solid #2563eb;outline-offset:2px}#seek{width:100%}#log{background:#eff6ff;padding:12px;border-radius:8px;line-height:1.6}#summary{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.card{border:1px solid #e2e8f0;border-left:4px solid var(--color);border-radius:6px;padding:9px 12px;font-size:12px}label{font-size:12px}#count{font-weight:600;color:#103673}
+</style></head><body><div class="panel">
+<div class="top"><div><h3>__TITLE__</h3><p class="muted">Phát lại chính xác các phép gom của CURE · khoảng cách tính trên dữ liệu mô hình</p></div><span id="count"></span></div>
+<canvas id="canvas" width="1000" height="440" aria-label="Mô phỏng quá trình gom cụm CURE"></canvas>
+<p class="muted">● Điểm dữ liệu &nbsp; × Điểm đại diện đã co &nbsp; ★ Trọng tâm · Màu cụm có thể đổi khi gom</p>
+<div class="controls"><button id="reset">↺ Đặt lại</button><button id="back">← Lùi</button><button id="next">Tiếp →</button><button id="play" class="primary">▶ Tự động</button><label>Tốc độ <select id="speed"><option value="500">Chậm</option><option value="150" selected>Vừa</option><option value="30">Nhanh</option></select></label></div>
+<label for="seek">Bước <span id="position"></span></label><input id="seek" type="range" min="0" value="0" aria-label="Chọn bước gom">
+<div id="log" role="status" aria-live="polite"></div><div id="summary"></div>
+</div><script>
+const replay = __PAYLOAD__;
+const palette = ['#2563eb','#dc2626','#16a34a','#d97706','#9333ea','#0891b2'];
+const canvas=document.getElementById('canvas'),ctx=canvas.getContext('2d');
+let cursor=0,timer=null;
+// Chỉ dựng lại trạng thái đã ghi; không chạy một bản thuật toán khác trong trình duyệt.
+function stateAt(step){
+  const groups=new Map(replay.points.map((p,i)=>[i,{id:i,indices:[i],mean:p,reps:[p]}]));
+  for(const e of replay.history.slice(0,step)){
+    const a=groups.get(e.left),b=groups.get(e.right);
+    groups.set(e.left,{id:e.left,indices:a.indices.concat(b.indices),mean:e.mean,reps:e.representatives});
+    groups.delete(e.right);
+  }
+  return [...groups.values()].sort((a,b)=>a.id-b.id);
+}
+const xs=replay.points.map(p=>p[0]),ys=replay.points.map(p=>p[1]);
+const xmin=Math.min(...xs),xmax=Math.max(...xs),ymin=Math.min(...ys),ymax=Math.max(...ys);
+const scale=Math.min(900/Math.max(xmax-xmin,1e-9),340/Math.max(ymax-ymin,1e-9));
+function screen(p){return [500+(p[0]-(xmin+xmax)/2)*scale,220-(p[1]-(ymin+ymax)/2)*scale];}
+function line(a,b){ctx.beginPath();ctx.moveTo(...a);ctx.lineTo(...b);ctx.stroke();}
+function stop(){clearInterval(timer);timer=null;document.getElementById('play').textContent='▶ Tự động';}
+function draw(){
+ const groups=stateAt(cursor);ctx.clearRect(0,0,1000,440);
+ groups.forEach((cl,i)=>{
+   ctx.fillStyle=palette[i%palette.length];
+   cl.indices.forEach(index=>{const p=screen(replay.points[index]);ctx.beginPath();ctx.arc(...p,4,0,2*Math.PI);ctx.fill();});
+   if(cl.indices.length>1){
+     const mean=screen(cl.mean);ctx.strokeStyle='#fca5a5';ctx.setLineDash([3,3]);
+     cl.reps.forEach(r=>line(mean,screen(r)));ctx.setLineDash([]);
+     ctx.strokeStyle='#991b1b';cl.reps.forEach(r=>{const [x,y]=screen(r);line([x-4,y-4],[x+4,y+4]);line([x-4,y+4],[x+4,y-4]);});
+     ctx.fillStyle='#92400e';ctx.font='20px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('★',...mean);
+   }
+ });
+ document.getElementById('seek').value=cursor;
+ document.getElementById('position').textContent=`${cursor} / ${replay.history.length}`;
+ document.getElementById('count').textContent=`${groups.length} cụm / mục tiêu ${replay.k}`;
+ document.getElementById('back').disabled=cursor===0;
+ document.getElementById('next').disabled=cursor===replay.history.length;
+ document.getElementById('play').disabled=cursor===replay.history.length;
+ const e=replay.history[cursor-1];
+ document.getElementById('log').textContent=e?`Gom cụm ${e.left+1} và ${e.right+1}, khoảng cách ${e.distance.toFixed(4)}. Cụm mới có ${e.size} điểm.`:'Mỗi điểm là một cụm. Chọn Tiếp hoặc Tự động để bắt đầu.';
+ const summary=document.getElementById('summary');summary.replaceChildren();
+ if(cursor===replay.history.length){
+   stop();document.getElementById('log').textContent+=' Hoàn tất: thành viên khớp kết quả Python.';
+   groups.forEach((cl,i)=>{const card=document.createElement('div');card.className='card';card.style.setProperty('--color',palette[i%palette.length]);card.textContent=`Cụm ${i+1}: ${cl.indices.length} điểm (${(100*cl.indices.length/replay.points.length).toFixed(1)}%) · ${cl.reps.length} đại diện`;summary.appendChild(card);});
+ }
+}
+function advance(){if(cursor<replay.history.length){cursor++;draw();}}
+document.getElementById('seek').max=replay.history.length;
+document.getElementById('seek').oninput=e=>{stop();cursor=Number(e.target.value);draw();};
+document.getElementById('reset').onclick=()=>{stop();cursor=0;draw();};
+document.getElementById('back').onclick=()=>{stop();cursor=Math.max(0,cursor-1);draw();};
+document.getElementById('next').onclick=()=>{stop();advance();};
+function start(){timer=setInterval(advance,Number(document.getElementById('speed').value));document.getElementById('play').textContent='Ⅱ Tạm dừng';}
+document.getElementById('play').onclick=()=>{if(timer)stop();else if(cursor<replay.history.length)start();};
+document.getElementById('speed').onchange=()=>{if(timer){stop();start();}};
+draw();
+</script></body></html>
