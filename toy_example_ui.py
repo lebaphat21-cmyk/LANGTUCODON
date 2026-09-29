@@ -41,8 +41,9 @@ def build_steps(points, choices=()):
     return history, states
 
 
-def select_merge():
-    step = st.session_state['toy_step']
+def select_merge(step):
+    # Capture the numeric step when rendering the selector. Another widget's
+    # session value may be stale or unset while Streamlit runs callbacks.
     choices = st.session_state['toy_choices'][:step-1]
     # Preserve the preceding computed steps before overriding this merge.
     history, _ = build_steps(TOY_POINTS, choices)
@@ -68,7 +69,7 @@ def render_toy_example():
     st.caption('Chọn bước 1–4, rồi chọn hai điểm/cụm cần gom. Các bước phía sau được tính lại; mặc định chọn cặp gần nhất theo CURE.')
     if st.button('Khôi phục cách gom mẫu', key='toy_reset'):
         st.session_state['toy_choices'] = []
-        st.session_state['toy_step'] = 0
+        st.session_state['toy_step_v2'] = 0
         for i in range(1, 5):
             st.session_state.pop(f'toy_pair_{i}', None)
     st.session_state.setdefault('toy_choices', [])
@@ -79,8 +80,9 @@ def render_toy_example():
         before = states[i]
         titles.append(f"Bước {i+1}: Gom {group_name(before[event['left']])} và "
                       f"{group_name(before[event['right']])}")
-    step = st.radio('Chọn bước thực hiện để quan sát:', range(len(states)),
-                    format_func=lambda i: titles[i], horizontal=True, key='toy_step')
+    step = st.radio('Chọn bước thực hiện để quan sát:', list(range(len(states))),
+                    format_func=lambda i: 'Bước 0: Khởi tạo 6 cụm' if i == 0 else f'Bước {i}: Gom còn {6-i} cụm',
+                    horizontal=True, key='toy_step_v2')
     if step:
         before = states[step-1]
         event = history[step-1]
@@ -89,7 +91,7 @@ def render_toy_example():
         st.session_state[f'toy_pair_{step}'] = selected_pair
         st.selectbox('Chọn hai điểm/cụm để gom ở bước này:', pairs,
                      format_func=lambda pair: f'{group_name(before[pair[0]])} + {group_name(before[pair[1]])}',
-                     key=f'toy_pair_{step}', on_change=select_merge)
+                     key=f'toy_pair_{step}', on_change=select_merge, args=(step,))
         if not np.isclose(event['distance'], event['minimum'], rtol=1e-12, atol=1e-12):
             st.warning(f"Bạn đang thử gom cặp có khoảng cách {event['distance']:.6f}; "
                        f"CURE sẽ chọn cặp gần nhất với khoảng cách {event['minimum']:.6f}. "
