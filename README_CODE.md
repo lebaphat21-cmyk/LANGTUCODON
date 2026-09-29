@@ -1,6 +1,6 @@
 # Hệ thống mô phỏng & đối sánh thuật toán phân cụm CURE
 
-Bản hoàn thiện mã nguồn: 26/09/2026. Ứng dụng giữ 11 tác vụ trong menu nhỏ bên trái.
+Bản hoàn thiện mã nguồn: 26/09/2026. Ứng dụng giữ 10 tác vụ trong menu nhỏ bên trái.
 Đây là mô hình học thuật trên dữ liệu số nhỏ/vừa; không phải bản CURE dữ liệu lớn đầy đủ.
 
 ## Khởi chạy

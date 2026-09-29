@@ -300,24 +300,6 @@ def run_all_algorithms(X_tuple, k, c, alpha, seed):
         hier_lbl, hier_met, hier_t
     )
 
-# %% Cell 09 - Hàm run_agnes_4linkage
-@st.cache_data(show_spinner="⏳ Đang chạy 4 biến thể AGNES...")
-def run_agnes_4linkage(X_tuple, k, seed):
-    """Chạy bốn linkage trên cùng X và k; seed giữ trong khóa thực nghiệm."""
-    X = np.array(X_tuple)
-    results = {}
-    for linkage in ['single', 'complete', 'average', 'ward']:
-        t0 = time.time()
-        model = AgglomerativeClustering(n_clusters=k, linkage=linkage)
-        lbl = model.fit_predict(X)
-        elapsed = time.time() - t0
-        results[linkage] = {
-            'labels': lbl,
-            'metrics': compute_metrics(X, lbl, elapsed),
-            'time': elapsed
-        }
-    return results
-
 # %% Cell 10 - Hàm run_diana
 @st.cache_data(show_spinner="⏳ Đang chạy DIANA (Top-down Divisive)...")
 def run_diana(X_tuple, k):
@@ -942,13 +924,12 @@ _X_key = tuple(map(tuple, X_data))
     hier_labels, hier_metrics, hier_time
 ) = run_all_algorithms(_X_key, k_clusters, c_reps, alpha_shrink, noise_seed)
 
-agnes_results = run_agnes_4linkage(_X_key, k_clusters, noise_seed)
 diana_labels, diana_means, diana_metrics, diana_time, diana_clusters = run_diana(_X_key, k_clusters)
 
 # Một nguồn số liệu cho biểu đồ và bảng tổng hợp của toàn bộ ứng dụng.
 all_metrics = {
     "CURE": cure_metrics, "K-Means": km_metrics, "K-Medoids": kmed_metrics,
-    **{f"AGNES ({linkage})": result['metrics'] for linkage, result in agnes_results.items()},
+    "AGNES (Single Linkage)": hier_metrics,
     "DIANA": diana_metrics,
 }
 data_context = f"Dữ liệu: {dataset_type} | N = {len(X_data)} | k = {k_clusters} | c = {c_reps} | α = {alpha_shrink} | Seed = {noise_seed}"
@@ -961,8 +942,7 @@ TASK_OPTIONS = {
     "tab_cure_flow": "🔍 CURE: Quy trình 5 giai đoạn",
     "tab_vs_kmeans": "⚔️ So sánh: CURE vs K-Means",
     "tab_vs_kmedoids": "⚔️ So sánh: CURE vs K-Medoids",
-    "tab_vs_hier": "⚔️ So sánh: CURE vs Hierarchical",
-    "tab_vs_agnes": "🔗 AGNES: 4 Linkage so sánh",
+    "tab_vs_agnes": "⚔️ So sánh: CURE vs AGNES (Single Linkage)",
     "tab_vs_diana": "✂️ DIANA: Phân cụm Chia cắt",
     "tab_summary": "📋 Bảng Tổng hợp Đối sánh",
     "tab_outlier": "🔎 Phân tích Ngoại lai (Outlier)",
@@ -1127,125 +1107,8 @@ if selected_task == "tab_cure_main":
 # %% Cell 20 - Tab 03: 📝 Bài toán Ví dụ Tính tay Từng bước (Toy Example)
 # Dùng dữ liệu và kết quả đã chuẩn bị ở các cell phía trên.
 if selected_task == "tab_cure_steps":
-    render_tab_header('📝 Bài toán Ví dụ Tính tay Từng bước (Toy Example)', 'Theo dõi phép tính CURE trên bộ dữ liệu minh họa cố định gồm 6 điểm.', "Ví dụ cố định: N = 6 | k = 2 | c = 2 | α = 0.5")
-    st.markdown(r"""
-    Nhóm thiết lập một tập dữ liệu nhỏ gồm **6 điểm 2D cụ thể** để minh họa chính xác từng bước hoạt động của thuật toán CURE:
-    * Cụm bên trái: $P_1(1, 2)$, $P_2(2, 3)$, $P_3(2, 1)$
-    * Cụm bên phải: $P_4(8, 7)$, $P_5(9, 8)$, $P_6(8, 9)$
-    * **Cấu hình:** $k = 2$ cụm mục tiêu, $c = 2$ điểm đại diện mỗi cụm, hệ số co cụm $\alpha = 0.5$.
-    """)
-
-    step_choice = st.radio("Chọn bước thực hiện để quan sát:", [
-        "Bước 0: Khởi tạo 6 điểm riêng lẻ (6 cụm ban đầu)",
-        "Bước 1: Sáp nhập P1 và P2 -> C{1,2}",
-        "Bước 2: Sáp nhập P4 và P5 -> C{4,5}",
-        "Bước 3: Sáp nhập C{1,2} với P3 -> C{1,2,3}",
-        "Bước 4: Sáp nhập C{4,5} với P6 -> C{4,5,6} (Hoàn tất k=2)"
-    ], horizontal=True)
-
-    step_idx = int(step_choice.split(":")[0].replace("Bước ", ""))
-    step_img = os.path.join(os.path.dirname(__file__), "toy_example_steps", f"step_{step_idx}.png")
-
-    col_t1, col_t2 = st.columns(2)
-
-    with col_t1:
-        if os.path.exists(step_img):
-            st.image(step_img, caption=f"Hình minh họa {step_choice}", use_container_width=True)
-        else:
-            st.info("Hình ảnh minh họa đang được cập nhật.")
-
-    with col_t2:
-        st.markdown("#### 📐 Công thức và Phép tính chi tiết")
-        if step_idx == 0:
-            st.markdown(r"""
-            ##### 📘 1. Công thức gốc lý thuyết
-            * **Khoảng cách giữa hai cụm CURE tổng quát:**
-              $$d(u, v) = \min_{p \in u.\text{rep},\; q \in v.\text{rep}} \|p - q\|_2 = \min_{p \in u.\text{rep},\; q \in v.\text{rep}} \sqrt{\sum_{i=1}^d (p_i - q_i)^2}$$
-            * *Quy về bước khởi tạo:* Mỗi điểm ban đầu là 1 cụm đơn lẻ $C_i = \{P_i\}$, do đó điểm đó là đại diện duy nhất ($C_i.\text{rep} = \{P_i\}$). Khoảng cách giữa 2 cụm chính là khoảng cách Euclidean giữa 2 điểm:
-              $$d(P_i, P_j) = \|P_i - P_j\|_2 = \sqrt{(x_i - x_j)^2 + (y_i - y_j)^2}$$
-
-            ##### 🔢 2. Phép tính số chi tiết
-            * Khởi tạo 6 cụm: $C_1=\{P_1\}, C_2=\{P_2\}, \dots, C_6=\{P_6\}$.
-            * Khoảng cách cặp gần nhất cụm trái:
-              $$d(P_1, P_2) = \sqrt{(2-1)^2 + (3-2)^2} = \sqrt{1^2 + 1^2} = \sqrt{2} \approx 1.414$$
-            * Khoảng cách cặp gần nhất cụm phải:
-              $$d(P_4, P_5) = \sqrt{(9-8)^2 + (8-7)^2} = \sqrt{1^2 + 1^2} = \sqrt{2} \approx 1.414$$
-            * **Kết luận:** Hai cặp $(P_1, P_2)$ và $(P_4, P_5)$ hòa khoảng cách nhỏ nhất toàn ma trận ($1.414$). Theo quy tắc chỉ số nhỏ hơn, CURE chọn sáp nhập cặp $(P_1, P_2)$.
-            """)
-        elif step_idx == 1:
-            st.markdown(r"""
-            ##### 📘 1. Công thức gốc lý thuyết
-            * **Trọng tâm cụm mới (Mean / Centroid):**
-              $$m = \mu(C) = \frac{1}{|C|} \sum_{p \in C} p = \left( \frac{1}{|C|} \sum_{i=1}^{|C|} x_i, \; \frac{1}{|C|} \sum_{i=1}^{|C|} y_i \right)$$
-            * **Co cụm các điểm đại diện về trọng tâm (Shrink Factor $\alpha$):**
-              $$p' = p + \alpha \cdot (m - p) = (1 - \alpha) \cdot p + \alpha \cdot m$$
-              *(Trong đó $\alpha \in [0, 1]$ là hệ số co cụm, kéo điểm đại diện $p$ lùi một khoảng tỷ lệ về phía trọng tâm $m$ để chống ngoại lai).*
-
-            ##### 🔢 2. Phép tính số chi tiết
-            * Sáp nhập $P_1(1, 2)$ và $P_2(2, 3)$ thành cụm $C_{\{1,2\}}$.
-            * **Trọng tâm cụm mới:**
-              $$m = \left(\frac{1+2}{2}, \frac{2+3}{2}\right) = (1.5, 2.5)$$
-            * **Co cụm 2 điểm đại diện với $\alpha = 0.5$:**
-              $$p'_1 = (1, 2) + 0.5 \times ((1.5, 2.5) - (1, 2)) = (1, 2) + (0.25, 0.25) = (1.25, 2.25)$$
-              $$p'_2 = (2, 3) + 0.5 \times ((1.5, 2.5) - (2, 3)) = (2, 3) + (-0.25, -0.25) = (1.75, 2.75)$$
-            * **Ý nghĩa:** Điểm đại diện đã dịch chuyển lùi vào trong một khoảng an toàn $50\%$ để bảo vệ ranh giới cụm khỏi nhiễu ngoại vi!
-            """)
-        elif step_idx == 2:
-            st.markdown(r"""
-            ##### 📘 1. Công thức gốc lý thuyết
-            * **Cặp cụm gần nhất được chọn để sáp nhập:**
-              $$(u^*, v^*) = \arg\min_{u, v} d(u, v)$$
-            * **Công thức Trọng tâm & Co cụm đại diện:**
-              $$m = \frac{1}{|C|} \sum_{p \in C} p, \qquad p' = p + \alpha \cdot (m - p)$$
-
-            ##### 🔢 2. Phép tính số chi tiết
-            * Khoảng cách $d(P_4, P_5) = \sqrt{(9-8)^2 + (8-7)^2} \approx 1.414$ nhỏ nhất giữa các cụm hiện có.
-            * Sáp nhập $P_4(8, 7)$ và $P_5(9, 8)$ thành cụm $C_{\{4,5\}}$.
-            * **Trọng tâm cụm mới:**
-              $$m = \left(\frac{8+9}{2}, \frac{7+8}{2}\right) = (8.5, 7.5)$$
-            * **Co cụm 2 điểm đại diện với $\alpha = 0.5$:**
-              $$p'_4 = (8, 7) + 0.5 \times ((8.5, 7.5) - (8, 7)) = (8.25, 7.25)$$
-              $$p'_5 = (9, 8) + 0.5 \times ((8.5, 7.5) - (9, 8)) = (8.75, 7.75)$$
-            * **Kết luận:** Số cụm hiện tại giảm xuống còn 4 cụm: $C_{\{1,2\}}, C_3, C_{\{4,5\}}, C_6$.
-            """)
-        elif step_idx == 3:
-            st.markdown(r"""
-            ##### 📘 1. Công thức gốc lý thuyết
-            * **Khoảng cách từ điểm $P_3$ tới cụm đã co $C_{\{1,2\}}$:**
-              $$d(P_3, C_{\{1,2\}}) = \min_{p \in C_{\{1,2\}}.\text{rep}} \|P_3 - p\|_2 = \min \left(\|P_3 - p'_1\|_2, \; \|P_3 - p'_2\|_2\right)$$
-            * **Giải thuật Farthest-Point Heuristic chọn $c=2$ điểm đại diện khi cụm có 3 điểm:**
-              - Điểm thứ nhất: $p_1 = \arg\max_{p \in C} \|p - m\|_2$ (điểm xa trọng tâm nhất).
-              - Điểm thứ hai: $p_2 = \arg\max_{p \in C \setminus \{p_1\}} \|p - p_1\|_2$ (điểm xa điểm thứ nhất nhất).
-              - Co về trọng tâm: $p' = p + \alpha(m - p)$.
-
-            ##### 🔢 2. Phép tính số chi tiết
-            * Tính khoảng cách từ $P_3(2, 1)$ tới 2 điểm đại diện đã co của $C_{\{1,2\}}$:
-              $$d(P_3, p'_1) = \sqrt{(2-1.25)^2 + (1-2.25)^2} = \sqrt{0.75^2 + (-1.25)^2} = \sqrt{0.5625 + 1.5625} \approx 1.458$$
-              $$d(P_3, p'_2) = \sqrt{(2-1.75)^2 + (1-2.75)^2} = \sqrt{0.25^2 + (-1.75)^2} = \sqrt{0.0625 + 3.0625} \approx 1.768$$
-              $$\implies d(P_3, C_{\{1,2\}}) = \min(1.458, 1.768) = 1.458$$
-            * Do $1.458$ là khoảng cách nhỏ nhất, $P_3$ sáp nhập vào cụm $C_{\{1,2\}} \rightarrow C_{\{1,2,3\}}$.
-            * **Trọng tâm mới:** $m = \left(\frac{1+2+2}{3}, \frac{2+3+1}{3}\right) = \left(\frac{5}{3}, 2\right) \approx (1.667, 2.0)$.
-            * Hai điểm đại diện xa nhất được chọn là $P_2(2, 3)$ và $P_3(2, 1)$, sau đó co về $m$:
-              $$p'_a = P_2 + 0.5(m - P_2) \approx (1.833, 2.5), \qquad p'_b = P_3 + 0.5(m - P_3) \approx (1.833, 1.5)$$
-            """)
-        elif step_idx == 4:
-            st.markdown(r"""
-            ##### 📘 1. Công thức gốc lý thuyết
-            * **Khoảng cách từ điểm $P_6$ tới cụm $C_{\{4,5\}}$:**
-              $$d(P_6, C_{\{4,5\}}) = \min_{p \in C_{\{4,5\}}.\text{rep}} \|P_6 - p\|_2 = \min \left(\|P_6 - p'_4\|_2, \; \|P_6 - p'_5\|_2\right)$$
-            * **Điều kiện dừng thuật toán CURE (Stopping Criterion):**
-              $$\text{Dừng khi số cụm hiện tại: } |\mathcal{C}| = k$$
-
-            ##### 🔢 2. Phép tính số chi tiết
-            * Tính khoảng cách từ $P_6(8, 9)$ tới 2 đại diện đã co của $C_{\{4,5\}}$:
-              $$d(P_6, p'_4) = \sqrt{(8-8.25)^2 + (9-7.25)^2} = \sqrt{(-0.25)^2 + 1.75^2} \approx 1.768$$
-              $$d(P_6, p'_5) = \sqrt{(8-8.75)^2 + (9-7.75)^2} = \sqrt{(-0.75)^2 + 1.25^2} \approx 1.458$$
-              $$\implies d(P_6, C_{\{4,5\}}) = \min(1.768, 1.458) = 1.458$$
-            * Do $1.458$ nhỏ hơn nhiều khoảng cách giữa cụm trái và cụm phải ($\approx 6.09$), $P_6$ sáp nhập vào cụm $C_{\{4,5\}} \rightarrow C_{\{4,5,6\}}$.
-            * **Trọng tâm cụm bên phải:** $m = \left(\frac{8+9+8}{3}, \frac{7+8+9}{3}\right) = \left(\frac{25}{3}, 8\right) \approx (8.333, 8.0)$.
-            * **Điều kiện dừng:** Số cụm còn lại đúng bằng $k = 2$.
-            * **Kết luận:** Thuật toán CURE hoàn tất xuất sắc với 2 cụm hoàn chỉnh và độ chính xác phân cụm đạt 100%!
-            """)
+    from toy_example_ui import render_toy_example
+    render_toy_example()
 
 
 # %% Cell 21 - Tab 04: 🔍 Quy trình 5 Giai đoạn & Kiến trúc Xử lý Dữ liệu lớn
@@ -1352,6 +1215,12 @@ if selected_task == "tab_vs_kmeans":
         ]
     })
     render_table(df_cmp_km)
+    st.markdown("#### 💡 Khi nào áp dụng CURE và K-Means?")
+    st.markdown("""
+    - **Chọn CURE** khi cụm kéo dài hoặc có hình dạng phức tạp, một trọng tâm không mô tả đủ cấu trúc; bạn chấp nhận chi phí tính cao hơn và điều chỉnh số đại diện c, hệ số co α. Ví dụ: nhóm điểm không gian tạo thành các dải.
+    - **Chọn K-Means** khi dữ liệu số có các cụm tương đối gọn, gần hình cầu, ít ngoại lai và cần chạy nhanh trên nhiều điểm. Ví dụ: phân nhóm khách hàng theo các thuộc tính đã chuẩn hóa.
+    - **Cách quyết định:** chuẩn hóa các thuộc tính khác đơn vị, kiểm tra ngoại lai, so sánh chất lượng và thời gian trên dữ liệu thực tế; CURE không luôn tốt hơn K-Means.
+    """)
 
 
 # %% Cell 23 - Tab 06: ⚔️ So sánh Đối đầu Trực diện: CURE vs K-Medoids (PAM)
@@ -1417,13 +1286,19 @@ if selected_task == "tab_vs_kmedoids":
         ]
     })
     render_table(df_cmp_kmed)
+    st.markdown("#### 💡 Khi nào áp dụng CURE và K-Medoids?")
+    st.markdown("""
+    - **Chọn CURE** khi cần nhiều điểm đại diện để mô tả cụm kéo dài hoặc không đều và có thể tinh chỉnh c, α. Co cụm có thể giảm ảnh hưởng của ngoại lai, nhưng không loại bỏ hoàn toàn nhiễu.
+    - **Chọn K-Medoids (PAM)** khi cần chọn một đối tượng có thật làm đại diện cho mỗi nhóm, dữ liệu nhỏ hoặc vừa và muốn giảm nhạy cảm với giá trị cực đoan so với K-Means. Ví dụ: chọn khách hàng hoặc sản phẩm tiêu biểu cho từng nhóm.
+    - **Cách quyết định:** ưu tiên K-Medoids nếu tính dễ giải thích của đại diện thực tế là quan trọng; cân nhắc CURE nếu một medoid không mô tả đủ hình dạng cụm. PAM có chi phí hoán đổi cao khi số điểm lớn.
+    """)
 
 
-# %% Cell 24 - Tab 07: ⚔️ So sánh Đối đầu Trực diện: CURE vs Gom cụm Phân cấp (Single Linkage)
+# %% Cell 24 - Tab 07: ⚔️ So sánh Đối đầu Trực diện: CURE vs AGNES (Single Linkage)
 # Dùng dữ liệu và kết quả đã chuẩn bị ở các cell phía trên.
-if selected_task == "tab_vs_hier":
-    render_tab_header('⚔️ So sánh Đối đầu Trực diện: CURE vs Gom cụm Phân cấp (Single Linkage)', 'Đối chiếu CURE và phân cụm phân cấp Single Linkage.', data_context)
-    st.markdown("#### 🎯 Trọng tâm kiểm thử: Khắc phục hiện tượng nối chuỗi (Chaining Effect) và Tối ưu bộ nhớ")
+if selected_task == "tab_vs_agnes":
+    render_tab_header('⚔️ So sánh Đối đầu Trực diện: CURE vs AGNES (Single Linkage)', 'Đối chiếu CURE và AGNES Single Linkage trên cùng dữ liệu và cùng số cụm.', data_context)
+    st.markdown("#### 🎯 Trọng tâm kiểm thử: Khoảng cách giữa các cụm và hiện tượng nối chuỗi (Chaining Effect)")
 
     col_h1, col_h2 = st.columns(2)
 
@@ -1431,29 +1306,29 @@ if selected_task == "tab_vs_hier":
         st.markdown("##### 🟢 Thuật toán CURE (Đề tài nghiên cứu)")
         fig_c_hier = make_scatter_figure(
             X_data, cure_labels,
-            f"CURE: Triệt tiêu nối chuỗi nhờ khoảng đệm co cụm",
+            f"CURE: Nhiều đại diện co về trọng tâm",
             reps=cure_reps, means=cure_means,
             x_title=axis_x_name, y_title=axis_y_name
         )
         render_chart(fig_c_hier, key="tab_chart_6")
         render_metrics(cure_metrics)
-        st.success("✅ **Không bị nối chuỗi:** Các điểm đại diện co cụm tạo khoảng cách ngăn cách an toàn!")
+        st.success("CURE dùng nhiều đại diện co về trọng tâm, có thể giảm nối chuỗi; kết quả phụ thuộc dữ liệu, c và α.")
 
     with col_h2:
-        st.markdown("##### 🟣 Gom cụm Phân cấp (Single Linkage)")
+        st.markdown("##### 🟣 AGNES (Single Linkage)")
         fig_hier = make_scatter_figure(
             X_data, hier_labels,
-            f"Hierarchical Single Linkage: Dễ bị dính cụm do nhiễu nối chuỗi",
+            f"AGNES Single Linkage: Dễ bị dính cụm do nhiễu nối chuỗi",
             x_title=axis_x_name, y_title=axis_y_name
         )
         render_chart(fig_hier, key="tab_chart_7")
         render_metrics(hier_metrics)
         if "Outliers" in dataset_type:
-            st.error("❌ **Hiện tượng nối chuỗi:** Các điểm ngoại lai nằm giữa đã nối dính 2 cụm riêng biệt lại với nhau!")
+            st.error("Các điểm nhiễu nằm giữa có thể nối hai cụm trong Single Linkage. Đối chiếu biểu đồ để đánh giá tập hiện tại.")
         else:
-            st.info("ℹ️ Single Linkage tìm được cụm phi cầu nhưng tốn bộ nhớ O(N²) và cực kỳ sợ nhiễu.")
+            st.info("Single Linkage có thể nhận diện cụm phi cầu, nhưng nhạy với các điểm tạo cầu nối giữa cụm.")
 
-    st.markdown("#### 📋 Bảng Đối chiếu Trực tiếp: CURE vs Gom cụm Phân cấp (Single Link)")
+    st.markdown("#### 📋 Bảng Đối chiếu Trực tiếp: CURE vs AGNES (Single Linkage)")
     df_cmp_hier = pd.DataFrame({
         "Tiêu chí đối sánh": [
             "Khoảng cách giữa hai cụm",
@@ -1466,241 +1341,24 @@ if selected_task == "tab_vs_hier":
         ],
         "CURE (Clustering Using REpresentatives)": [
             "Khoảng cách nhỏ nhất giữa các điểm đại diện ĐÃ CO CỤM",
-            "Triệt tiêu hoàn toàn nhờ khoảng đệm co cụm alpha",
-            "Miễn nhiễm nhờ co cụm và 2 pha lọc ngoại lai",
-            "O(s) - Tiết kiệm nhờ lấy mẫu ngẫu nhiên s điểm",
-            "Xuất sắc (Gán nhãn tuyến tính O(N) trên đĩa)",
+            "Có thể giảm nối chuỗi nhờ đại diện co về trọng tâm",
+            "Co cụm giảm ảnh hưởng; bản demo chưa có lọc ngoại lai hai pha",
+            "O(s²) cho heap khoảng cách trên s điểm mẫu",
+            "Có thể lấy mẫu; bản demo xử lý trong bộ nhớ",
             f"{cure_metrics['Silhouette']:.4f}",
             f"{cure_metrics['Davies-Bouldin']:.4f}"
         ],
-        "Hierarchical (Single Linkage)": [
+        "AGNES (Single Linkage)": [
             "Khoảng cách nhỏ nhất giữa TẤT CẢ các cặp điểm thuộc 2 cụm",
             "Rất nghiêm trọng (Chỉ cần 1 vệt điểm nhiễu là sáp nhập nhầm)",
             "Rất nhạy cảm với các điểm nhiễu ngoại lai ở rìa",
-            "O(N²) - Tràn bộ nhớ khi N > 10.000",
-            "Không khả thi trên dữ liệu lớn (Big Data)",
+            "Phụ thuộc cách cài đặt Single Linkage",
+            "Cần cân nhắc cài đặt và kích thước dữ liệu",
             f"{hier_metrics['Silhouette']:.4f}",
             f"{hier_metrics['Davies-Bouldin']:.4f}"
         ]
     })
     render_table(df_cmp_hier)
-
-
-# %% Cell 25 - Tab 08: 🔗 AGNES (Agglomerative Nesting) — So sánh 4 kiểu Linkage
-# Dùng dữ liệu và kết quả đã chuẩn bị ở các cell phía trên.
-if selected_task == "tab_vs_agnes":
-    render_tab_header('🔗 AGNES (Agglomerative Nesting) — So sánh 4 kiểu Linkage', 'Đối chiếu bốn cách đo khoảng cách giữa các cụm trong AGNES.', data_context)
-
-    # ─── Giới thiệu ─────────────────────────────────────────────────────────
-    st.markdown("""
-    <div class="app-card">
-        <b style="color:#1e40af;font-size:14px;">📌 AGNES là gì và liên quan gì đến CURE?</b><br>
-        <span style="font-size:13px;color:#374151;">
-        <b>AGNES</b> là phương pháp phân cụm phân cấp <b>hướng từ dưới lên (Bottom-up)</b>: ban đầu mỗi điểm là 1 cụm,
-        sau đó liên tục gom 2 cụm gần nhau nhất thành 1 — giống như CURE.<br><br>
-        Sự khác biệt nằm ở <b>cách đo "khoảng cách giữa 2 cụm"</b> — AGNES có 4 cách (linkage), mỗi cách
-        cho kết quả phân cụm rất khác nhau. <b>CURE chính là bản nâng cấp của AGNES Single Linkage</b>
-        — thêm co cụm α để chống nối chuỗi và nhiều điểm đại diện để nắm hình dạng phức tạp.
-        </span>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # ─── Chạy 4 AGNES với cache ──────────────────────────────────────────────
-
-
-    linkage_info = {
-        'single':   {'name': 'Single Linkage',   'icon': '🔵', 'color': '#2563eb',
-                     'mo_ta': 'Khoảng cách = 2 điểm GẦN NHẤT của 2 cụm',
-                     'uu': 'Tìm được cụm phi cầu, hình cong uốn lượn',
-                     'nhuoc': 'Dễ bị "nối chuỗi" (Chaining Effect) khi có nhiễu'},
-        'complete': {'name': 'Complete Linkage', 'icon': '🔴', 'color': '#dc2626',
-                     'mo_ta': 'Khoảng cách = 2 điểm XA NHẤT của 2 cụm',
-                     'uu': 'Tạo cụm gọn, đều, ít bị nối chuỗi',
-                     'nhuoc': 'Nhạy với outlier — 1 điểm xa làm lệch khoảng cách'},
-        'average':  {'name': 'Average Linkage',  'icon': '🟡', 'color': '#d97706',
-                     'mo_ta': 'Khoảng cách = TRUNG BÌNH tất cả cặp điểm giữa 2 cụm',
-                     'uu': 'Cân bằng giữa Single và Complete, ít nhạy outlier',
-                     'nhuoc': 'Chi phí tính toán cao hơn Single/Complete'},
-        'ward':     {'name': 'Ward Linkage',     'icon': '🟢', 'color': '#16a34a',
-                     'mo_ta': 'Gom sao cho tổng variance trong cụm tăng ÍT NHẤT',
-                     'uu': 'Cụm compact, cân đối — tốt nhất thực tế với dữ liệu hình cầu',
-                     'nhuoc': 'Giả định cụm hình cầu (giống K-Means), kém với phi cầu'},
-    }
-
-    # ─── Phần 1: Giải thích 4 linkage ────────────────────────────────────────
-    st.markdown("#### 📖 1. Cách hoạt động của từng Linkage")
-
-    col_l1, col_l2 = st.columns(2)
-    for i, (key, info) in enumerate(linkage_info.items()):
-        col = col_l1 if i < 2 else col_l2
-        with col:
-            st.markdown(f"""
-            <div class="app-card">
-                <div style="font-weight:700;color:{info['color']};font-size:13px;">
-                    {info['icon']} {info['name']}
-                </div>
-                <div style="font-size:12px;color:#475569;margin:4px 0;">
-                    <b>Cách đo:</b> {info['mo_ta']}
-                </div>
-                <div style="font-size:12px;color:#16a34a;">✅ <b>Ưu điểm:</b> {info['uu']}</div>
-                <div style="font-size:12px;color:#dc2626;">❌ <b>Nhược điểm:</b> {info['nhuoc']}</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-    st.markdown("""
-    <div class="app-card">
-        <b>💡 Ghi nhớ công thức tổng quát:</b><br>
-        &nbsp;&nbsp;• <b>Single</b> = min(dist) &nbsp;|&nbsp;
-        <b>Complete</b> = max(dist) &nbsp;|&nbsp;
-        <b>Average</b> = mean(dist) &nbsp;|&nbsp;
-        <b>Ward</b> = min(ΔVariance)<br>
-        Trong đó dist là khoảng cách giữa từng cặp điểm (1 điểm từ cụm A, 1 điểm từ cụm B).
-    </div>
-    """, unsafe_allow_html=True)
-
-    # ─── Phần 2: Biểu đồ 4 linkage song song ────────────────────────────────
-    st.markdown("#### 📊 2. Kết quả phân cụm trực quan — 4 Linkage trên cùng dữ liệu")
-
-    col_g1, col_g2 = st.columns(2)
-    col_g3, col_g4 = st.columns(2)
-    grid_cols = [col_g1, col_g2, col_g3, col_g4]
-
-    for i, (key, info) in enumerate(linkage_info.items()):
-        res = agnes_results[key]
-        lbl = res['labels']
-        met = res['metrics']
-        with grid_cols[i]:
-            st.markdown(f"##### {info['icon']} {info['name']}")
-            fig = make_scatter_figure(
-                X_data, lbl,
-                f"{info['name']} (k={k_clusters})",
-                x_title=axis_x_name, y_title=axis_y_name
-            )
-            render_chart(fig, key=f"tab_chart_8_{i}")
-            render_metrics(met)
-
-    # ─── Phần 3: Bảng so sánh 4 linkage vs CURE ─────────────────────────────
-    st.markdown("#### 📋 3. Bảng Đối chiếu: CURE vs AGNES 4 Linkage")
-
-    rows = []
-    # Hàng CURE
-    rows.append({
-        "Thuật toán": "🟩 CURE (Đề tài)",
-        "Cơ chế đo khoảng cách": f"Min dist giữa {c_reps} điểm đại diện ĐÃ CO (α={alpha_shrink})",
-        "Nhận diện phi cầu": "✅ Xuất sắc",
-        "Kháng nối chuỗi": "✅ Xuất sắc (nhờ co cụm α)",
-        "Kháng Outlier": "✅ Rất tốt (α + 2 pha lọc)",
-        f"Silhouette (k={k_clusters})": f"{cure_metrics['Silhouette']:.4f}",
-        "DB Index": f"{cure_metrics['Davies-Bouldin']:.4f}",
-        "Thời gian": f"{cure_time:.4f}s",
-    })
-    for key, info in linkage_info.items():
-        res = agnes_results[key]
-        met = res['metrics']
-        phi_cau = "✅ Tốt" if key == 'single' else ("⚠️ Trung bình" if key == 'average' else "❌ Kém")
-        chaining = "❌ Kém" if key == 'single' else ("✅ Tốt" if key in ['complete', 'ward'] else "⚠️ Trung bình")
-        outlier  = "❌ Nhạy" if key == 'complete' else ("⚠️ Trung bình" if key == 'single' else "✅ Tốt")
-        rows.append({
-            "Thuật toán": f"{info['icon']} AGNES {info['name']}",
-            "Cơ chế đo khoảng cách": info['mo_ta'],
-            "Nhận diện phi cầu": phi_cau,
-            "Kháng nối chuỗi": chaining,
-            "Kháng Outlier": outlier,
-            f"Silhouette (k={k_clusters})": f"{met['Silhouette']:.4f}",
-            "DB Index": f"{met['Davies-Bouldin']:.4f}",
-            "Thời gian": f"{res['time']:.4f}s",
-        })
-    df_agnes_cmp = pd.DataFrame(rows)
-    render_table(df_agnes_cmp)
-
-    # ─── Phần 4: Bar Chart Silhouette so sánh ────────────────────────────────
-    st.markdown("#### 📈 4. So sánh Silhouette Score — CURE vs AGNES 4 Linkage")
-
-    labels_bar = ["CURE"] + [f"AGNES\n{linkage_info[k]['name'].split()[0]}" for k in linkage_info]
-    sil_bar_vals = [cure_metrics['Silhouette']] + [agnes_results[k]['metrics']['Silhouette'] for k in linkage_info]
-    colors_bar = ['#103673', '#2563eb', '#dc2626', '#d97706', '#16a34a']
-    best_idx = int(np.argmax(sil_bar_vals))
-
-    fig_bar_agnes = go.Figure(data=[go.Bar(
-        x=labels_bar, y=sil_bar_vals,
-        marker_color=colors_bar,
-        text=[f"{v:.4f}" for v in sil_bar_vals],
-        textposition='outside',
-        textfont=dict(size=11)
-    )])
-    # Vẽ đường dấu sao tại CURE
-    fig_bar_agnes.add_hline(
-        y=cure_metrics['Silhouette'], line_dash="dash", line_color="#103673",
-        annotation_text=f"CURE: {cure_metrics['Silhouette']:.4f}",
-        annotation_position="bottom right", annotation_font_color="#103673"
-    )
-    fig_bar_agnes.update_layout(
-        height=380,
-        margin=dict(l=10, r=10, t=30, b=10),
-        plot_bgcolor="#fafbfc",
-        yaxis=dict(title="Silhouette Score (Càng cao càng tốt)", range=[-0.15, max(sil_bar_vals) * 1.25]),
-        xaxis=dict(title="Thuật toán"),
-        showlegend=False
-    )
-    render_chart(fig_bar_agnes, key="tab_chart_9")
-
-    # ─── Phần 5: Giải thích kết quả và kết luận ──────────────────────────────
-    best_agnes_key = max(linkage_info.keys(), key=lambda k: agnes_results[k]['metrics']['Silhouette'])
-    best_agnes_info = linkage_info[best_agnes_key]
-    best_agnes_sil  = agnes_results[best_agnes_key]['metrics']['Silhouette']
-
-    cure_vs_best = "tốt hơn" if cure_metrics['Silhouette'] >= best_agnes_sil else "kém hơn"
-    diff_pct = abs(cure_metrics['Silhouette'] - best_agnes_sil) / max(abs(best_agnes_sil), 1e-6) * 100
-
-    st.markdown(f"""
-    <div class="app-card">
-        <b>💡 Đọc kết quả biểu đồ trên:</b><br><br>
-        <ul style="margin:0 0 0 16px;line-height:1.9;">
-            <li><b>Silhouette Score</b> đo mức độ gắn kết trong cụm và tách biệt giữa các cụm —
-                càng gần 1.0 càng tốt, âm là phân cụm sai.</li>
-            <li>Trong 4 biến thể AGNES, <b>{best_agnes_info['icon']} {best_agnes_info['name']}</b>
-                đạt Silhouette cao nhất ({best_agnes_sil:.4f}) trên tập dữ liệu hiện tại.</li>
-            <li>CURE đạt {cure_metrics['Silhouette']:.4f} — <b>{cure_vs_best}</b> biến thể AGNES tốt nhất
-                khoảng {diff_pct:.1f}%.</li>
-            <li>Tuy nhiên, Silhouette chỉ đo hình học — CURE vượt trội thực sự ở khả năng
-                <b>nhận diện cụm phi cầu, kháng nối chuỗi và xử lý dữ liệu lớn</b>
-                mà AGNES thuần không có.</li>
-        </ul>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # ─── Kết luận ─────────────────────────────────────────────────────────────
-    st.markdown("""
-    <div class="app-card">
-        <div style="font-size:15px;font-weight:700;margin-bottom:10px;">
-            🎯 Kết luận: CURE = AGNES được nâng cấp toàn diện
-        </div>
-        <div style="font-size:13px;line-height:1.9;opacity:0.95;">
-            <table style="width:100%;border-collapse:collapse;">
-                <tr style="border-bottom:1px solid rgba(255,255,255,0.2);">
-                    <td style="padding:4px 8px;font-weight:600;">Vấn đề của AGNES</td>
-                    <td style="padding:4px 8px;font-weight:600;">Giải pháp của CURE</td>
-                </tr>
-                <tr style="border-bottom:1px solid rgba(255,255,255,0.15);">
-                    <td style="padding:4px 8px;">Single dễ bị nối chuỗi</td>
-                    <td style="padding:4px 8px;">Co cụm α kéo đại diện vào trong → ngăn chaining</td>
-                </tr>
-                <tr style="border-bottom:1px solid rgba(255,255,255,0.15);">
-                    <td style="padding:4px 8px;">Complete/Ward nhạy với hình dạng</td>
-                    <td style="padding:4px 8px;">c điểm đại diện trải đều → nhận diện hình phi cầu</td>
-                </tr>
-                <tr style="border-bottom:1px solid rgba(255,255,255,0.15);">
-                    <td style="padding:4px 8px;">Tất cả AGNES tốn O(N²) bộ nhớ</td>
-                    <td style="padding:4px 8px;">Lấy mẫu s + gán nhãn O(N) → chạy trên Big Data</td>
-                </tr>
-                <tr>
-                    <td style="padding:4px 8px;">Không lọc ngoại lai</td>
-                    <td style="padding:4px 8px;">2 pha lọc outlier tự động trong quá trình gom</td>
-                </tr>
-            </table>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
 
 
 # %% Cell 26 - Tab 09: ✂️ DIANA (Divisive Analysis) — Phân cụm Phân cấp Chia cắt (Top-down)
@@ -2006,7 +1664,7 @@ if selected_task == "tab_summary":
             f"{kmed_time:.4f}s",
             "Dùng khi có ngoại lai nhưng dữ liệu nhỏ và hình cầu"
         ],
-        "AGNES (Single)": [
+        "AGNES (Single Linkage)": [
             "⭐⭐⭐⭐ (Tốt khi không có nhiễu)",
             "⭐⭐⭐⭐ (Tốt)",
             "⭐ (Rất nhạy cảm với nhiễu)",
@@ -2015,16 +1673,6 @@ if selected_task == "tab_summary":
             "⭐⭐⭐⭐ (Chỉ cần k)",
             f"{hier_time:.4f}s",
             "Chỉ dùng cho dữ liệu nhỏ và không có ngoại lai"
-        ],
-        "AGNES (Ward)": [
-            "⭐⭐ (Xu hướng cụm cầu)",
-            "⭐⭐⭐ (Trung bình)",
-            "⭐⭐⭐ (Khá hơn Single)",
-            "⭐⭐⭐⭐⭐ (Không bị nối chuỗi)",
-            "⭐ (Tràn bộ nhớ O(N²))",
-            "⭐⭐⭐⭐ (Chỉ cần k)",
-            f"{agnes_results['ward']['time']:.4f}s",
-            "Tốt cho dữ liệu kinh doanh phân bố tương đối đều"
         ],
         "DIANA": [
             "⭐⭐ (Kém với cụm phi cầu)",
