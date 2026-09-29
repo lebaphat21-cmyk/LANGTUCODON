@@ -1093,7 +1093,7 @@ if selected_task == "tab_cure_main":
         st.markdown("""
         <div class="app-card">
             <b>Ý nghĩa trực quan của CURE:</b><br>
-            • <b>Dấu X đen:</b> $c$ điểm đại diện đã co cụm về phía tâm.<br>
+            • <b>Dấu X đen:</b> <i>c</i> điểm đại diện đã co cụm về phía tâm.<br>
             • <b>Ngôi sao vàng:</b> Trọng tâm mean của cụm.<br>
             • Nhờ phân bố rải rác nhiều điểm đại diện, CURE ôm trọn vẹn đường cong tự nhiên và phân bố khách hàng!
         </div>

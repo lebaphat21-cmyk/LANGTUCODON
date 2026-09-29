@@ -3,12 +3,12 @@ from itertools import combinations
 
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
+from matplotlib.figure import Figure
 import streamlit as st
 
 from cure_algorithm import CURECluster
 from data_pipeline import TOY_POINTS
-from ui_components import CLUSTER_COLORS, render_chart, render_table, render_tab_header
+from ui_components import CLUSTER_COLORS, render_table, render_tab_header
 
 
 def group_distance(a, b):
@@ -56,6 +56,39 @@ def group_name(group):
     return '{' + ', '.join(f'P{i+1}' for i in group['indices']) + '}'
 
 
+def make_toy_figure(points, groups, step):
+    """Vẽ theo mẫu tính tay: khung trắng, nhãn tọa độ và đại diện dấu X đỏ."""
+    fig = Figure(figsize=(8, 5), dpi=150, facecolor='white')
+    ax = fig.subplots()
+    for label, group in enumerate(groups.values()):
+        pts = points[group['indices']]
+        color = '#16a34a' if step == 0 else CLUSTER_COLORS[label % len(CLUSTER_COLORS)]
+        ax.scatter(pts[:, 0], pts[:, 1], s=65, color=color,
+                   edgecolors='#166534' if step == 0 else color, zorder=3)
+        mean = group['mean']
+        ax.scatter(mean[0], mean[1], marker='*', s=170, color='#facc15',
+                   edgecolors='black', linewidths=.8, zorder=4)
+        reps = np.asarray(group['representatives'])
+        ax.scatter(reps[:, 0], reps[:, 1], marker='x', s=85, color='red',
+                   linewidths=1.8, zorder=5)
+    for i, point in enumerate(points):
+        ax.annotate(f'P{i+1}({point[0]:g},{point[1]:g})', point,
+                    xytext=(7, 5), textcoords='offset points',
+                    color='#103673', fontsize=10, fontweight='bold', zorder=6)
+    ax.set(xlim=(0, 11), ylim=(0, 11), xticks=range(0, 11, 2), yticks=range(0, 11, 2))
+    ax.set_xlabel('Tọa độ X', fontweight='bold')
+    ax.set_ylabel('Tọa độ Y', fontweight='bold')
+    ax.set_title(f'Bước {step}: ' + ('Khởi tạo 6 cụm đơn lẻ' if step == 0 else f'Sau sáp nhập — còn {len(groups)} cụm'),
+                 color='#103673', fontweight='bold', pad=14)
+    ax.grid(True, linestyle='--', linewidth=.7, color='#d1d5db')
+    ax.set_axisbelow(True)
+    for spine in ax.spines.values():
+        spine.set_color('#4b5563')
+        spine.set_linewidth(1)
+    fig.tight_layout()
+    return fig
+
+
 def render_toy_example():
     render_tab_header('📝 Bài toán Ví dụ Tính tay Từng bước (Toy Example)',
                       'Theo dõi phép tính trên 6 điểm mẫu và tự chọn điểm/cụm muốn gom ở mỗi bước.',
@@ -98,25 +131,10 @@ def render_toy_example():
                        'Đây là lựa chọn tính tay của bạn, khác quy tắc chọn cặp của CURE.')
     col_t1, col_t2 = st.columns(2)
     groups = states[step]
-    fig = go.Figure()
-    for label, group in enumerate(groups.values()):
-        ids = group['indices']
-        pts = points[ids]
-        color = CLUSTER_COLORS[label % len(CLUSTER_COLORS)]
-        fig.add_trace(go.Scatter(x=pts[:, 0], y=pts[:, 1], mode='markers+text',
-                                text=[f'P{i+1}' for i in ids], textposition='top center',
-                                name=group_name(group), marker=dict(size=12, color=color)))
-        reps = np.asarray(group['representatives'])
-        fig.add_trace(go.Scatter(x=reps[:, 0], y=reps[:, 1], mode='markers',
-                                name='Đại diện sau co', showlegend=label == 0,
-                                marker=dict(symbol='x', size=12, color='black')))
-        fig.add_trace(go.Scatter(x=[group['mean'][0]], y=[group['mean'][1]], mode='markers',
-                                name='Trọng tâm', showlegend=label == 0,
-                                marker=dict(symbol='star', size=15, color='#eab308')))
-    fig.update_layout(title=titles[step], xaxis_title='X', yaxis_title='Y')
-    fig.update_yaxes(scaleanchor='x', scaleratio=1)
     with col_t1:
-        render_chart(fig, key='toy_chart')
+        fig = make_toy_figure(points, groups, step)
+        st.pyplot(fig, use_container_width=True)
+        st.caption('Điểm tròn: điểm dữ liệu · Sao vàng: trọng tâm · Dấu X đỏ: đại diện sau co.')
     with col_t2:
         st.markdown('#### 📐 Công thức và phép tính chi tiết')
         st.markdown('##### 📘 1. Công thức gốc lý thuyết')
